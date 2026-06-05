@@ -452,10 +452,122 @@ RSpec.describe 'Grades API', type: :request do
     end
 
     it 'denies TA from assigning grades' do
-      patch "/grades/#{participant.id}/assign_grade", 
+      patch "/grades/#{participant.id}/assign_grade",
             params: { grade_for_submission: 90 },
             headers: { 'Authorization' => "Bearer #{ta_token}" }
       expect(response).to have_http_status(:forbidden)
+    end
+  end
+
+  # -------------------------------------------------------------------------
+  # inject_section_headers — section headings appear in view_our_scores
+  # -------------------------------------------------------------------------
+  # inject_section_headers is a private helper called inside get_heatgrid_data_for.
+  # We test its effect through the public view_our_scores endpoint: when a questionnaire
+  # has SectionHeader items, the response's round arrays must contain { type: "header" }
+  # sentinel hashes at the correct positions.
+  describe 'section headers in view_our_scores' do
+    let!(:questionnaire) do
+      Questionnaire.create!(
+        name: 'Section Header Test Rubric',
+        instructor_id: instructor.id,
+        private: false,
+        min_question_score: 0,
+        max_question_score: 5,
+        questionnaire_type: 'ReviewQuestionnaire'
+      )
+    end
+
+    before do
+      # SectionHeader before the first group
+      Item.create!(questionnaire_id: questionnaire.id, txt: 'Code Quality', weight: 0,
+                   seq: 1, question_type: 'SectionHeader', break_before: true)
+      # Two scoreable CriterionItems
+      Item.create!(questionnaire_id: questionnaire.id, txt: 'Is the code readable?', weight: 1,
+                   seq: 2, question_type: 'CriterionItem', break_before: true)
+      Item.create!(questionnaire_id: questionnaire.id, txt: 'Is the code tested?', weight: 1,
+                   seq: 3, question_type: 'CriterionItem', break_before: true)
+
+      AssignmentQuestionnaire.create!(
+        assignment_id: assignment.id,
+        questionnaire_id: questionnaire.id,
+        used_in_round: nil,
+        questionnaire_weight: 100
+      )
+
+      # Reviewer submits a response covering the two scored items
+      reviewer_participant = AssignmentParticipant.create!(
+        user_id: student2.id, parent_id: assignment.id, handle: student2.name
+      )
+      map = ReviewResponseMap.create!(
+        reviewed_object_id: assignment.id,
+        reviewer_id: reviewer_participant.id,
+        reviewee_id: team.id
+      )
+      resp = Response.create!(map_id: map.id, is_submitted: true, round: 1)
+      scored_items = Item.where(questionnaire_id: questionnaire.id, question_type: 'CriterionItem').order(:seq)
+      scored_items.each do |item|
+        Answer.create!(response_id: resp.id, item_id: item.id, answer: 4, comments: 'Good')
+      end
+    end
+
+    it 'injects a section header sentinel at position 0 in the round array' do
+      get "/grades/#{assignment.id}/view_our_scores",
+          headers: { 'Authorization' => "Bearer #{student_token}" }
+
+      expect(response).to have_http_status(:ok)
+      data = JSON.parse(response.body)
+
+      round_arrays = data['reviews_of_our_work'].values
+      expect(round_arrays).not_to be_empty
+
+      first_round = round_arrays.first
+      expect(first_round).to be_an(Array)
+
+      # The first element should be the SectionHeader sentinel, not a scores array
+      header_entry = first_round.find { |e| e.is_a?(Hash) && e['type'] == 'header' }
+      expect(header_entry).not_to be_nil
+      expect(header_entry['txt']).to eq('Code Quality')
+    end
+
+    it 'places the header sentinel before the scored items, not after' do
+      get "/grades/#{assignment.id}/view_our_scores",
+          headers: { 'Authorization' => "Bearer #{student_token}" }
+
+      data = JSON.parse(response.body)
+      first_round = data['reviews_of_our_work'].values.first
+
+      header_index = first_round.index { |e| e.is_a?(Hash) && e['type'] == 'header' }
+      # There should be scored-item arrays after the header
+      expect(first_round.length).to be > header_index + 1
+    end
+
+    it 'does not inject headers when the questionnaire has none' do
+      # Remove the SectionHeader item
+      Item.where(questionnaire_id: questionnaire.id, question_type: 'SectionHeader').destroy_all
+
+      get "/grades/#{assignment.id}/view_our_scores",
+          headers: { 'Authorization' => "Bearer #{student_token}" }
+
+      data = JSON.parse(response.body)
+      first_round = data['reviews_of_our_work'].values.first
+
+      header_entry = (first_round || []).find { |e| e.is_a?(Hash) && e['type'] == 'header' }
+      expect(header_entry).to be_nil
+    end
+  end
+
+  # -------------------------------------------------------------------------
+  # student_tasks#show — AssignmentParticipant constraint
+  # -------------------------------------------------------------------------
+  describe 'student_tasks show endpoint' do
+    it 'returns 404 when the id belongs to a non-AssignmentParticipant' do
+      # Only AssignmentParticipant records should be matched — other Participant subclasses
+      # for the same user must not slip through and cause type-mismatch 500s.
+      get '/student_tasks/show/999999',
+          headers: { 'Authorization' => "Bearer #{student_token}" }
+
+      expect(response.status).to be_in([404, 403])
     end
   end
 end

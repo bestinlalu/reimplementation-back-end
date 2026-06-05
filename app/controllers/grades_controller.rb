@@ -18,19 +18,22 @@ class GradesController < ApplicationController
 
     # index (GET /grades/:assignment_id/view_all_scores)
     # returns all review scores and computed heatmap data for the given assignment (instructor/TA view).
-    def view_all_scores    
+    def view_all_scores
         @assignment = Assignment.find(params[:assignment_id])
         participant_scores = []
         team_scores = []
-        
+
         @assignment.participants.each do |participant|
             participant_scores.push(get_my_scores_data(participant))
         end
-        
-        @assignment.teams.each do |team|
+
+        # Preload team.users for all teams in one query to avoid N+1 inside get_our_scores_data.
+        # Without this, each call to get_our_scores_data fires a separate `team.users` JOIN query
+        # (one per team), which degrades linearly with the number of teams in the assignment.
+        @assignment.teams.includes(:users).each do |team|
             team_scores.push(get_our_scores_data(team))
         end
-        
+
         render json: {
             team_scores: team_scores,
             participant_scores: participant_scores
@@ -273,10 +276,25 @@ class GradesController < ApplicationController
         reviews_of_our_work = get_heatgrid_data_for(reviews_of_our_work_maps)
         avg_score_of_our_work = team.aggregate_review_grade
 
+        # Embed all team metadata directly in this response so the frontend can populate
+        # team name, grade, submission links, and member list in a single API call.
+        # Previously the frontend made 3+ follow-up requests:
+        #   GET /participants/user/:id  →  GET /teams_participants/:id/list_participants
+        #   →  GET /users/:id  (once per team member)
+        # team.hyperlinks calls YAML.safe_load(submitted_hyperlinks) internally — no manual parsing.
+        # team.users is a single JOIN through teams_participants (no N+1 — one query for all members).
+        team_members = {
+            team_name:        team.name,
+            grade:            team.grade_for_submission,
+            comment:          team.comment_for_submission,
+            submission_links: team.hyperlinks,
+            members:          team.users.map { |u| { name: u.full_name, username: u.name } }
+        }
+
         {
-            team_details: team,
-            reviews_of_our_work: reviews_of_our_work,
-            avg_score_of_our_work: avg_score_of_our_work
+            reviews_of_our_work:    reviews_of_our_work,
+            avg_score_of_our_work:  avg_score_of_our_work,
+            team_members:           team_members
         }
     end
 
@@ -326,7 +344,7 @@ class GradesController < ApplicationController
     def get_heatgrid_data_for(maps)
         # Initialize a hash to store scores grouped by review rounds
         reviewee_scores = {}
-        return if maps.empty?
+        return reviewee_scores if maps.empty?
 
         # check if the assignment uses different rubrics for each round
         if @assignment.varying_rubrics_by_round?
@@ -361,15 +379,97 @@ class GradesController < ApplicationController
                 end
 
                 reviewee_scores[round_symbol].each_with_index do |scores_array, idx|
-                    # Sort each question's answers array by reviewer_name and reviwee_name 
+                    # Sort each question's answers array by reviewer_name and reviwee_name
                     reviewee_scores[round_symbol][idx] = scores_array.sort_by { |answer| [answer[:reviewer_name].downcase , answer[:reviewee_name].downcase] }
                 end
+
+                # Inject SectionHeader sentinels so the frontend can render section headings.
+                # Constrain by questionnaire_type so we look up the rubric that actually matches
+                # the maps we're processing (Review, TeammateReview, Feedback) rather than
+                # returning any AQ for this round — which would be wrong when multiple
+                # questionnaire types are configured for the same round and assignment.
+                aq = AssignmentQuestionnaire
+                       .joins(:questionnaire)
+                       .where(assignment_id: @assignment.id, used_in_round: round)
+                       .where(questionnaires: { type: maps.first.questionnaire_type })
+                       .first
+                inject_section_headers(reviewee_scores[round_symbol], aq&.questionnaire_id)
             end
 
+        else
+            # Non-varying rubric branch. varying_rubrics_by_round? == false does NOT mean
+            # "single round" — an assignment may reuse the same rubric across multiple rounds.
+            # The original code folded everything into a synthetic Round-1 bucket and used
+            # .last, which silently lost earlier rounds. Instead, discover the actual rounds
+            # present in submitted responses and group each one separately.
+            rounds = maps.flat_map { |map|
+                map.responses.select(&:is_submitted).map(&:round)
+            }.compact.uniq.sort
+
+            # Guard: if no submitted responses exist, nothing to show.
+            return reviewee_scores if rounds.empty?
+
+            rounds.each do |round|
+                round_symbol = ("#{maps.first.questionnaire_type}-Round-#{round}").to_sym
+                reviewee_scores[round_symbol] = []
+
+                maps.each_with_index do |map, index|
+                    submitted_response = map.responses.select { |r|
+                        r.round == round && r.is_submitted && r.map_id == map.id
+                    }.last
+                    next if submitted_response.nil?
+
+                    submitted_response.scores.each_with_index do |score, new_index|
+                        reviewee_scores[round_symbol][new_index] ||= []
+                        reviewee_scores[round_symbol][new_index] << get_answer(score, index)
+                    end
+                end
+
+                reviewee_scores[round_symbol].each_with_index do |scores_array, idx|
+                    reviewee_scores[round_symbol][idx] = scores_array.sort_by { |answer|
+                        [answer[:reviewer_name].downcase, answer[:reviewee_name].downcase]
+                    }
+                end
+
+                # Inject SectionHeader sentinels. For non-varying assignments used_in_round
+                # is nil in AssignmentQuestionnaire regardless of how many actual response
+                # rounds were recorded, so look up by nil rather than by the response round.
+                aq = AssignmentQuestionnaire.where(assignment_id: @assignment.id, used_in_round: nil).first
+                inject_section_headers(reviewee_scores[round_symbol], aq&.questionnaire_id)
+            end
         end
 
         # Return the organized hash of scores grouped by round
         return reviewee_scores
+    end
+
+    # Injects SectionHeader items as sentinel hashes into a round's scores array.
+    # The heatgrid scores array is indexed by scored-item position (SectionHeaders have no
+    # answers so they never appear in the scores loop). This method looks up the questionnaire,
+    # walks all items in seq order, and inserts { type: "header", txt: "..." } markers at the
+    # correct positions so the frontend can render heading rows between score rows.
+    def inject_section_headers(round_scores, questionnaire_id)
+        return round_scores if questionnaire_id.nil?
+
+        all_items = Item.where(questionnaire_id: questionnaire_id).order(:seq)
+        scored_count = 0
+        headers_to_insert = {}   # scored_position => header_txt
+
+        all_items.each do |item|
+            if item.question_type == 'SectionHeader'
+                headers_to_insert[scored_count] = item.txt
+            else
+                scored_count += 1
+            end
+        end
+
+        offset = 0
+        headers_to_insert.sort.each do |position, header_txt|
+            round_scores.insert(position + offset, { type: "header", txt: header_txt })
+            offset += 1
+        end
+
+        round_scores
     end
 
     def get_answer(score, index)

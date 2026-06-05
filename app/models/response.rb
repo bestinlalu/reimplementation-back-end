@@ -11,9 +11,19 @@ class Response < ApplicationRecord
   alias map response_map
   delegate :reviewer_assignment, :response_assignment, :reviewee, :reviewer, to: :map
 
-  # return the questionnaire that belongs to the response
+  # return the questionnaire that belongs to the response.
+  # For varying-round assignments, used_in_round matches response.round (1 or 2).
+  # For single-round assignments, used_in_round is nil in the DB while response.round is 1,
+  # so we fall back to the first AssignmentQuestionnaire when the round-specific lookup fails.
   def questionnaire
-    reviewer_assignment.assignment_questionnaires.find_by(used_in_round: self.round).questionnaire
+    assignment_questionnaires = reviewer_assignment.assignment_questionnaires
+    # Primary lookup: find the AQ whose round matches this response's round.
+    aq = assignment_questionnaires.find_by(used_in_round: round)
+    # Fallback: single-round assignments store their AQ with used_in_round: nil.
+    # Falling back to nil-round (not .first) keeps the resolution deterministic —
+    # .first is arbitrary when multiple AQs exist for the same assignment.
+    aq ||= assignment_questionnaires.find_by(used_in_round: nil)
+    aq&.questionnaire
   end
 
   # Backward-compatible wrapper around ResponseMap#response_map_label.

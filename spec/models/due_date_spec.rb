@@ -280,6 +280,36 @@ RSpec.describe DueDate, type: :model do
     end
   end
 
+  describe '.current_stage_for' do
+    let(:assignment) { Assignment.create!(id: 5001, name: 'Stage Assignment', instructor:) }
+
+    it "returns 'submission' when next due date is a submission type" do
+      DueDate.create!(parent: assignment, due_at: 3.days.from_now, deadline_type_id: ExpertizaConstants::DeadlineTypes::SUBMISSION,
+                      submission_allowed_id: 3, review_allowed_id: 3)
+      expect(DueDate.current_stage_for(assignment)).to eq('submission')
+    end
+
+    it "returns 'review' when next due date is a review type" do
+      DueDate.create!(parent: assignment, due_at: 1.day.ago, deadline_type_id: ExpertizaConstants::DeadlineTypes::SUBMISSION,
+                      submission_allowed_id: 3, review_allowed_id: 3)
+      DueDate.create!(parent: assignment, due_at: 3.days.from_now, deadline_type_id: ExpertizaConstants::DeadlineTypes::REVIEW,
+                      submission_allowed_id: 3, review_allowed_id: 3)
+      expect(DueDate.current_stage_for(assignment)).to eq('review')
+    end
+
+    it "returns 'Finished' when no upcoming due dates exist" do
+      DueDate.create!(parent: assignment, due_at: 2.days.ago, deadline_type_id: ExpertizaConstants::DeadlineTypes::SUBMISSION,
+                      submission_allowed_id: 3, review_allowed_id: 3)
+      expect(DueDate.current_stage_for(assignment)).to eq('Finished')
+    end
+
+    it "returns 'Unknown' for an unrecognised deadline_type_id" do
+      DueDate.create!(parent: assignment, due_at: 3.days.from_now, deadline_type_id: 99,
+                      submission_allowed_id: 3, review_allowed_id: 3)
+      expect(DueDate.current_stage_for(assignment)).to eq('Unknown')
+    end
+  end
+
   describe 'validation' do
     let(:assignment) { Assignment.create(id: 1, name: 'Test Assignment', instructor:) }
 

@@ -49,7 +49,8 @@ Rails.application.routes.draw do
       resources :student_tasks do
         collection do
           get :list, action: :list
-          get :view
+          get 'show/:id', action: :show
+          get :team, action: :team
         end
       end
 

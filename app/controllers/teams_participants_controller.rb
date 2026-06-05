@@ -4,6 +4,11 @@ class TeamsParticipantsController < ApplicationController
     case params[:action]
     when 'update_duty'
       current_user_has_student_privileges?
+    when 'list_participants'
+      # TA+ can always enumerate any team.
+      # Students may only view their own team roster — enforced inside the action itself
+      # via an explicit membership check so IDs cannot be enumerated by guessing.
+      current_user_has_ta_privileges? || current_user_has_student_privileges?
     else
       current_user_has_ta_privileges?
     end
@@ -36,6 +41,17 @@ class TeamsParticipantsController < ApplicationController
     # If no team is found, return a 404 error with an appropriate error message.
     if current_team.nil?
       render json: { error: "Couldn't find Team" }, status: :not_found and return
+    end
+
+    # Students may only view rosters for teams they belong to.
+    # Without this check any authenticated student can enumerate arbitrary team memberships
+    # by guessing team IDs, since action_allowed? only requires student privileges.
+    # TA+ skip this guard — they have legitimate cross-team visibility.
+    unless current_user_has_ta_privileges?
+      member_ids = TeamsParticipant.where(team_id: current_team.id).pluck(:user_id)
+      unless member_ids.include?(current_user.id)
+        render json: { error: 'You are not authorized to view this team' }, status: :forbidden and return
+      end
     end
 
     # Fetch all team participant records associated with the current team.

@@ -13,7 +13,7 @@ class ParticipantsController < ApplicationController
     if participants.nil?
       render json: participants.errors, status: :unprocessable_entity
     else
-      render json: participants, status: :ok
+      render json: participants.map(&:attributes), status: :ok
     end
   end
 
