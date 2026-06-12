@@ -48,8 +48,10 @@ class TeamsParticipantsController < ApplicationController
     # by guessing team IDs, since action_allowed? only requires student privileges.
     # TA+ skip this guard — they have legitimate cross-team visibility.
     unless current_user_has_ta_privileges?
-      member_ids = TeamsParticipant.where(team_id: current_team.id).pluck(:user_id)
-      unless member_ids.include?(current_user.id)
+      # exists? fires a single SELECT 1 and avoids materialising the full user_id list.
+      # user_id is NOT NULL (enforced by DB constraint and model validation), so the
+      # column is safe to match against directly without a pluck intermediate.
+      unless TeamsParticipant.exists?(team_id: current_team.id, user_id: current_user.id)
         render json: { error: 'You are not authorized to view this team' }, status: :forbidden and return
       end
     end

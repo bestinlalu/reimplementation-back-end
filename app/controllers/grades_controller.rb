@@ -368,12 +368,20 @@ class GradesController < ApplicationController
                     # Skip if no valid response was submitted
                     next if submitted_round_response.nil?
 
-                    # Go through each score in the submitted response
-                    submitted_round_response.scores.each_with_index do |score, newIndex|
+                    # Go through each score in the submitted response.
+                    # Skip SectionHeader items — they carry no numeric answer and must not
+                    # appear as scored rows; inject_section_headers inserts header sentinels
+                    # separately. Without this filter, any Answer record whose item_id points
+                    # to a SectionHeader (which can happen when seed data is recreated) would
+                    # land in round_scores alongside the real scored rows, causing the header
+                    # text to appear as a numbered heatgrid cell.
+                    submitted_round_response.scores
+                                           .reject { |s| s.item.question_type == 'SectionHeader' }
+                                           .each_with_index do |score, newIndex|
                         # Initialize sub-array if it doesn't exist
                         reviewee_scores[round_symbol][newIndex] ||= []
 
-                        # Add the score's answer, optionally anonymizing reviewer name                        
+                        # Add the score's answer, optionally anonymizing reviewer name
                         reviewee_scores[round_symbol][newIndex] << get_answer(score, index)
                     end
                 end
@@ -388,10 +396,15 @@ class GradesController < ApplicationController
                 # the maps we're processing (Review, TeammateReview, Feedback) rather than
                 # returning any AQ for this round — which would be wrong when multiple
                 # questionnaire types are configured for the same round and assignment.
+                # maps.first.questionnaire_type returns the short form ('Review',
+                # 'TeammateReview', 'AuthorFeedback') but questionnaires.questionnaire_type
+                # stores the full class name ('ReviewQuestionnaire', etc.) — same convention
+                # as assignment.rb line 223: "#{questionnaireType}Questionnaire".
+                db_questionnaire_type = "#{maps.first.questionnaire_type}Questionnaire"
                 aq = AssignmentQuestionnaire
                        .joins(:questionnaire)
                        .where(assignment_id: @assignment.id, used_in_round: round)
-                       .where(questionnaires: { type: maps.first.questionnaire_type })
+                       .where(questionnaires: { questionnaire_type: db_questionnaire_type })
                        .first
                 inject_section_headers(reviewee_scores[round_symbol], aq&.questionnaire_id)
             end
@@ -419,7 +432,10 @@ class GradesController < ApplicationController
                     }.last
                     next if submitted_response.nil?
 
-                    submitted_response.scores.each_with_index do |score, new_index|
+                    # Same SectionHeader filter as the varying-rubric branch above.
+                    submitted_response.scores
+                                      .reject { |s| s.item.question_type == 'SectionHeader' }
+                                      .each_with_index do |score, new_index|
                         reviewee_scores[round_symbol][new_index] ||= []
                         reviewee_scores[round_symbol][new_index] << get_answer(score, index)
                     end
@@ -434,7 +450,16 @@ class GradesController < ApplicationController
                 # Inject SectionHeader sentinels. For non-varying assignments used_in_round
                 # is nil in AssignmentQuestionnaire regardless of how many actual response
                 # rounds were recorded, so look up by nil rather than by the response round.
-                aq = AssignmentQuestionnaire.where(assignment_id: @assignment.id, used_in_round: nil).first
+                # Constrain by questionnaire_type (same as the varying-rubric branch) so we
+                # return the rubric matching the current maps (Review, TeammateReview, Feedback)
+                # rather than whichever AQ happens to sort first when multiple types share
+                # used_in_round: nil on the same assignment.
+                db_questionnaire_type = "#{maps.first.questionnaire_type}Questionnaire"
+                aq = AssignmentQuestionnaire
+                       .joins(:questionnaire)
+                       .where(assignment_id: @assignment.id, used_in_round: nil)
+                       .where(questionnaires: { questionnaire_type: db_questionnaire_type })
+                       .first
                 inject_section_headers(reviewee_scores[round_symbol], aq&.questionnaire_id)
             end
         end

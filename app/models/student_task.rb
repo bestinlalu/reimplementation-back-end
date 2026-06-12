@@ -76,7 +76,12 @@ class StudentTask
   # Constrained to AssignmentParticipant to avoid type-mismatch 500s when other
   # Participant subclasses exist for the same user/id in the polymorphic table.
   def self.from_participant_id(id)
-    create_from_participant(AssignmentParticipant.find_by(id: id))
+    # Guard against nil so callers receive nil rather than a NoMethodError on
+    # participant.assignment when the id does not match any AssignmentParticipant.
+    participant = AssignmentParticipant.find_by(id: id)
+    return nil unless participant
+
+    create_from_participant(participant)
   end
 
   # Builds a unified timeline by merging due dates and actual activity,
@@ -195,6 +200,8 @@ class StudentTask
   end
 
   # Parses a date string or Time object into a Time instance.
+  # Declared private via private_class_method because the `private` keyword only
+  # restricts instance methods — class methods (self.*) remain public without it.
   def self.parse_stage_deadline(date_string)
     return date_string if date_string.is_a?(Time)
     Time.parse(date_string.to_s)
@@ -202,5 +209,6 @@ class StudentTask
     Rails.logger.error("Failed to parse stage deadline '#{date_string}': #{e.message}")
     Time.now + 1.year
   end
+  private_class_method :parse_stage_deadline
 
 end

@@ -561,13 +561,15 @@ RSpec.describe 'Grades API', type: :request do
   # student_tasks#show — AssignmentParticipant constraint
   # -------------------------------------------------------------------------
   describe 'student_tasks show endpoint' do
-    it 'returns 404 when the id belongs to a non-AssignmentParticipant' do
+    it 'returns 404 with error message when the id does not match any AssignmentParticipant' do
       # Only AssignmentParticipant records should be matched — other Participant subclasses
       # for the same user must not slip through and cause type-mismatch 500s.
+      # A missing/non-matching id must produce exactly 404 (not found), not 403 (forbidden).
       get '/student_tasks/show/999999',
           headers: { 'Authorization' => "Bearer #{student_token}" }
 
-      expect(response.status).to be_in([404, 403])
+      expect(response.status).to eq(404)
+      expect(JSON.parse(response.body)['error']).to eq('Participant not found')
     end
   end
 end
