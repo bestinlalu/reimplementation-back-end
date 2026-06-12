@@ -72,11 +72,19 @@ class StudentTask
                          .sort_by { |task| [task.course, task.assignment, task.stage_deadline] }
   end
 
-  # create a StudentTask instance from a participant of the provided id
-  # Constrained to AssignmentParticipant to avoid type-mismatch 500s when other
-  # Participant subclasses exist for the same user/id in the polymorphic table.
+  # Creates a StudentTask from a participant ID. Returns nil if the ID does not
+  # match any AssignmentParticipant (other Participant subclasses are excluded to
+  # avoid type-mismatch 500s). Preloads the same associations as from_user so
+  # create_from_participant does not fire redundant queries per attribute access.
   def self.from_participant_id(id)
-    create_from_participant(AssignmentParticipant.find_by(id: id))
+    participant = AssignmentParticipant
+                    .where(id: id)
+                    .includes(assignment: :course)
+                    .includes(:user)
+                    .first
+    return nil unless participant
+
+    create_from_participant(participant)
   end
 
   # Builds a unified timeline by merging due dates and actual activity,
@@ -195,6 +203,8 @@ class StudentTask
   end
 
   # Parses a date string or Time object into a Time instance.
+  # Declared private via private_class_method because the `private` keyword only
+  # restricts instance methods — class methods (self.*) remain public without it.
   def self.parse_stage_deadline(date_string)
     return date_string if date_string.is_a?(Time)
     Time.parse(date_string.to_s)
@@ -202,5 +212,6 @@ class StudentTask
     Rails.logger.error("Failed to parse stage deadline '#{date_string}': #{e.message}")
     Time.now + 1.year
   end
+  private_class_method :parse_stage_deadline
 
 end

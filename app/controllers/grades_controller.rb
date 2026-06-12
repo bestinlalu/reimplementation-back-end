@@ -340,107 +340,94 @@ class GradesController < ApplicationController
         }
     end
 
-    # it returns the heatgrid data for a collection of maps (ReviewResponseMap/FeedbackResponseMap/TeammateReviewResponseMap)
+    # Returns heatgrid data for a collection of maps (ReviewResponseMap/FeedbackResponseMap/TeammateReviewResponseMap).
+    # Groups submitted scores by round symbol (:Review-Round-1, etc.) and injects SectionHeader sentinels.
     def get_heatgrid_data_for(maps)
-        # Initialize a hash to store scores grouped by review rounds
         reviewee_scores = {}
         return reviewee_scores if maps.empty?
 
-        # check if the assignment uses different rubrics for each round
+        # Resolve the DB-stored questionnaire_type(s) once, hoisted above both branches.
+        # maps.first.questionnaire_type returns a short form: 'Review', 'TeammateReview',
+        # or 'AuthorFeedback'. The questionnaires table stores the full class name, but
+        # 'AuthorFeedback' has two historical variants: 'Author FeedbackQuestionnaire' (with
+        # space) and 'AuthorFeedbackQuestionnaire' (no space). Matching against
+        # Questionnaire::QUESTIONNAIRE_TYPES with a whitespace-insensitive compare covers both
+        # and generates an IN clause, so neither variant is silently missed.
+        short_type = maps.first.questionnaire_type
+        db_questionnaire_types = Questionnaire::QUESTIONNAIRE_TYPES.select { |t|
+            t.gsub(' ', '').casecmp?("#{short_type}Questionnaire")
+        }
+
         if @assignment.varying_rubrics_by_round?
-            # Retrieve all round numbers that have distinct questionnaires
-            rounds = @assignment.review_rounds(maps.first.questionnaire_type)
-
+            rounds = @assignment.review_rounds(short_type)
             rounds.each do |round|
-                # Create a symbol like :Review-Round-1 or :TeammateReview-Round-2
-                round_symbol = ("#{maps.first.questionnaire_type}-Round-#{round}").to_sym
-
-                # Initialize the array to hold scores for the current round
-                reviewee_scores[round_symbol] = []
-
-                # Go through each response map (i.e., reviewer mapping)
-                maps.each_with_index do |map, index|
-                    # Find the most recent submitted response for the current round
-                    submitted_round_response = map.responses.select do |r|
-                        r.round == round && r.is_submitted && r.map_id == map.id
-                    end.last
-
-                    # Skip if no valid response was submitted
-                    next if submitted_round_response.nil?
-
-                    # Go through each score in the submitted response
-                    submitted_round_response.scores.each_with_index do |score, newIndex|
-                        # Initialize sub-array if it doesn't exist
-                        reviewee_scores[round_symbol][newIndex] ||= []
-
-                        # Add the score's answer, optionally anonymizing reviewer name                        
-                        reviewee_scores[round_symbol][newIndex] << get_answer(score, index)
-                    end
-                end
-
-                reviewee_scores[round_symbol].each_with_index do |scores_array, idx|
-                    # Sort each question's answers array by reviewer_name and reviwee_name
-                    reviewee_scores[round_symbol][idx] = scores_array.sort_by { |answer| [answer[:reviewer_name].downcase , answer[:reviewee_name].downcase] }
-                end
-
-                # Inject SectionHeader sentinels so the frontend can render section headings.
-                # Constrain by questionnaire_type so we look up the rubric that actually matches
-                # the maps we're processing (Review, TeammateReview, Feedback) rather than
-                # returning any AQ for this round — which would be wrong when multiple
-                # questionnaire types are configured for the same round and assignment.
                 aq = AssignmentQuestionnaire
                        .joins(:questionnaire)
                        .where(assignment_id: @assignment.id, used_in_round: round)
-                       .where(questionnaires: { type: maps.first.questionnaire_type })
+                       .where(questionnaires: { questionnaire_type: db_questionnaire_types })
                        .first
-                inject_section_headers(reviewee_scores[round_symbol], aq&.questionnaire_id)
+                reviewee_scores = accumulate_round_scores(reviewee_scores, maps, round, aq&.questionnaire_id)
             end
-
         else
-            # Non-varying rubric branch. varying_rubrics_by_round? == false does NOT mean
-            # "single round" — an assignment may reuse the same rubric across multiple rounds.
-            # The original code folded everything into a synthetic Round-1 bucket and used
-            # .last, which silently lost earlier rounds. Instead, discover the actual rounds
-            # present in submitted responses and group each one separately.
+            # varying_rubrics_by_round? == false does NOT mean single-round — the same rubric
+            # may be reused across multiple rounds. Discover actual rounds from submitted responses.
             rounds = maps.flat_map { |map|
                 map.responses.select(&:is_submitted).map(&:round)
             }.compact.uniq.sort
 
-            # Guard: if no submitted responses exist, nothing to show.
             return reviewee_scores if rounds.empty?
 
+            # For non-varying assignments, AssignmentQuestionnaire is stored with used_in_round: nil
+            # regardless of how many actual response rounds exist. Look it up once outside the loop.
+            aq = AssignmentQuestionnaire
+                   .joins(:questionnaire)
+                   .where(assignment_id: @assignment.id, used_in_round: nil)
+                   .where(questionnaires: { questionnaire_type: db_questionnaire_types })
+                   .first
+
             rounds.each do |round|
-                round_symbol = ("#{maps.first.questionnaire_type}-Round-#{round}").to_sym
-                reviewee_scores[round_symbol] = []
-
-                maps.each_with_index do |map, index|
-                    submitted_response = map.responses.select { |r|
-                        r.round == round && r.is_submitted && r.map_id == map.id
-                    }.last
-                    next if submitted_response.nil?
-
-                    submitted_response.scores.each_with_index do |score, new_index|
-                        reviewee_scores[round_symbol][new_index] ||= []
-                        reviewee_scores[round_symbol][new_index] << get_answer(score, index)
-                    end
-                end
-
-                reviewee_scores[round_symbol].each_with_index do |scores_array, idx|
-                    reviewee_scores[round_symbol][idx] = scores_array.sort_by { |answer|
-                        [answer[:reviewer_name].downcase, answer[:reviewee_name].downcase]
-                    }
-                end
-
-                # Inject SectionHeader sentinels. For non-varying assignments used_in_round
-                # is nil in AssignmentQuestionnaire regardless of how many actual response
-                # rounds were recorded, so look up by nil rather than by the response round.
-                aq = AssignmentQuestionnaire.where(assignment_id: @assignment.id, used_in_round: nil).first
-                inject_section_headers(reviewee_scores[round_symbol], aq&.questionnaire_id)
+                reviewee_scores = accumulate_round_scores(reviewee_scores, maps, round, aq&.questionnaire_id)
             end
         end
 
-        # Return the organized hash of scores grouped by round
-        return reviewee_scores
+        reviewee_scores
+    end
+
+    # Accumulates scores for one round into reviewee_scores and injects SectionHeader sentinels.
+    # Extracted from get_heatgrid_data_for to eliminate the ~50-line duplicate that existed
+    # between the varying-rubric and non-varying branches.
+    def accumulate_round_scores(reviewee_scores, maps, round, questionnaire_id)
+        round_symbol = "#{maps.first.questionnaire_type}-Round-#{round}".to_sym
+        reviewee_scores[round_symbol] = []
+
+        maps.each_with_index do |map, index|
+            submitted_response = map.responses.select { |r|
+                r.round == round && r.is_submitted && r.map_id == map.id
+            }.last
+            next if submitted_response.nil?
+
+            # Filter SectionHeader answers at the DB level (single JOIN instead of N queries).
+            # SectionHeader items have no numeric meaning — their Answer rows (created when
+            # seed data or a form submission includes all item IDs) must not appear as scored
+            # heatgrid rows. inject_section_headers inserts header sentinels separately.
+            scored_answers = submitted_response.scores
+                                               .joins(:item)
+                                               .where.not(items: { question_type: 'SectionHeader' })
+
+            scored_answers.each_with_index do |score, idx|
+                reviewee_scores[round_symbol][idx] ||= []
+                reviewee_scores[round_symbol][idx] << get_answer(score, index)
+            end
+        end
+
+        reviewee_scores[round_symbol].each_with_index do |scores_array, idx|
+            reviewee_scores[round_symbol][idx] = scores_array.sort_by { |answer|
+                [answer[:reviewer_name].downcase, answer[:reviewee_name].downcase]
+            }
+        end
+
+        inject_section_headers(reviewee_scores[round_symbol], questionnaire_id)
+        reviewee_scores
     end
 
     # Injects SectionHeader items as sentinel hashes into a round's scores array.

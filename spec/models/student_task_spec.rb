@@ -83,20 +83,31 @@ RSpec.describe StudentTask, type: :model do
   end
 
   describe ".from_participant_id" do
-    it "uses AssignmentParticipant (not Participant) to look up by id" do
-      # The fix: Participant.find_by was replaced with AssignmentParticipant.find_by so that
-      # other Participant subclasses (e.g. TeammateReviewParticipant) for the same user cannot
-      # be returned and cause type-mismatch 500s later in create_from_participant.
-      allow(AssignmentParticipant).to receive(:find_by).with(id: 1).and_return(@participant)
+    # Shared helper: builds a relation double that responds to the
+    # .where(id:).includes(assignment: :course).includes(:user).first chain
+    # used by from_participant_id, and returns the given participant from .first.
+    def stub_participant_chain(participant)
+      relation = double('relation')
+      allow(AssignmentParticipant).to receive(:where).with(id: 1).and_return(relation)
+      allow(relation).to receive(:includes).with(assignment: :course).and_return(relation)
+      allow(relation).to receive(:includes).with(:user).and_return(relation)
+      allow(relation).to receive(:first).and_return(participant)
+      relation
+    end
 
-      expect(AssignmentParticipant).to receive(:find_by).with(id: 1).and_return(@participant)
+    it "uses AssignmentParticipant (not Participant) to look up by id" do
+      # from_participant_id must scope to AssignmentParticipant so that other Participant
+      # subclasses (e.g. CourseParticipant) for the same id cannot slip through and
+      # cause type-mismatch 500s later in create_from_participant.
+      relation = stub_participant_chain(@participant)
+      expect(AssignmentParticipant).to receive(:where).with(id: 1).and_return(relation)
       expect(StudentTask).to receive(:create_from_participant).with(@participant)
 
       StudentTask.from_participant_id(1)
     end
 
     it "does not call the base Participant class for the lookup" do
-      allow(AssignmentParticipant).to receive(:find_by).with(id: 1).and_return(@participant)
+      stub_participant_chain(@participant)
       allow(StudentTask).to receive(:create_from_participant)
 
       expect(Participant).not_to receive(:find_by)

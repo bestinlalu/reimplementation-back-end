@@ -14,25 +14,26 @@ class StudentTasksController < ApplicationController
     render json: StudentTask.teamed_students(current_user), status: :ok
   end
 
-  # The view function retrieves a student task based on a participant's ID.
-  # It is meant to provide an endpoint where tasks can be queried based on participant ID.
+  # Retrieves a StudentTask by AssignmentParticipant ID.
+  # Delegates lookup and preloading to from_participant_id so the find_by +
+  # nil-guard + create_from_participant logic is not duplicated here.
   def show
-    # Constrain to AssignmentParticipant — other Participant subclasses for the same user
-    # can be found via the polymorphic participants table and cause type-mismatch 500s later.
-    participant = AssignmentParticipant.find_by(id: params[:id])
+    @student_task = StudentTask.from_participant_id(params[:id])
 
-    if participant.nil?
+    if @student_task.nil?
       render json: { error: "Participant not found" }, status: :not_found
       return
     end
 
-    if participant.user_id != current_user.id
+    if @student_task.participant.user_id != current_user.id
       render json: { error: "Unauthorized access to participant's task" }, status: :forbidden
       return
     end
 
-    @student_task = StudentTask.create_from_participant(participant)
-    @student_task.due_dates = StudentTask.get_timeline_data(participant.assignment, participant)
+    @student_task.due_dates = StudentTask.get_timeline_data(
+      @student_task.participant.assignment,
+      @student_task.participant
+    )
     render json: @student_task, status: :ok
   end
 
