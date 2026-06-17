@@ -202,7 +202,7 @@ RSpec.describe 'StudentTasks API', type: :request do
 
           # user.teams traverses teams_users (User has_many :teams, through: :teams_users)
           # team.users traverses teams_participants (Team has_many :users, through: :teams_participants)
-          # teamed_students calls both, so both join tables must have rows.
+          # all_teammates calls both, so both join tables must have rows.
           TeamsUser.create!(team_id: team.id, user_id: studenta.id)
           TeamsUser.create!(team_id: team.id, user_id: teammate.id)
           TeamsParticipant.create!(team_id: team.id, user_id: studenta.id, participant_id: participant_a.id)

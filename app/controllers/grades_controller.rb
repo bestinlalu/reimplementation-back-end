@@ -27,11 +27,11 @@ class GradesController < ApplicationController
             participant_scores.push(get_my_scores_data(participant))
         end
 
-        # Preload team.users for all teams in one query to avoid N+1 inside get_our_scores_data.
-        # Without this, each call to get_our_scores_data fires a separate `team.users` JOIN query
+        # Preload team.users for all teams in one query to avoid N+1 inside get_team_scores.
+        # Without this, each call to get_team_scores fires a separate `team.users` JOIN query
         # (one per team), which degrades linearly with the number of teams in the assignment.
         @assignment.teams.includes(:users).each do |team|
-            team_scores.push(get_our_scores_data(team))
+            team_scores.push(get_team_scores(team))
         end
 
         render json: {
@@ -47,7 +47,7 @@ class GradesController < ApplicationController
     # renders JSON with scores, assignment, averages.
     # This meets the student’s need to see heatgrids for their team only (with anonymous reviewers) and the associated items.
     def view_our_scores
-        render json: get_our_scores_data(@team)
+        render json: get_team_scores(@team)
     end
 
     # (GET /grades/:assignment_id/view_my_scores)
@@ -165,7 +165,7 @@ class GradesController < ApplicationController
     def edit
         items = list_items(@assignment)
         scores = {}
-        scores[:my_team] = get_our_scores_data(@team)
+        scores[:my_team] = get_team_scores(@team)
         scores[:my_own] = get_my_scores_data(@participant)
         render json: {
         participant: @participant,
@@ -271,9 +271,11 @@ class GradesController < ApplicationController
 
     
     # returns the heatgrid data required for a team to view their scores and average score of their work for an assignment
-    def get_our_scores_data(team)
-        reviews_of_our_work_maps = ReviewResponseMap.where(reviewed_object_id: @assignment.id, reviewee_id: team.id).to_a
-        reviews_of_our_work = get_heatgrid_data_for(reviews_of_our_work_maps)
+    def get_team_scores(team)
+        reviews_of_our_work_maps = ReviewResponseMap.where(reviewed_object_id: @assignment.id, reviewee_id: team.id)
+                                                   .includes(responses: { scores: :item })
+                                                   .to_a
+        reviews_of_our_work = get_reviews(reviews_of_our_work_maps)
         avg_score_of_our_work = team.aggregate_review_grade
 
         # Embed all team metadata directly in this response so the frontend can populate
@@ -302,14 +304,18 @@ class GradesController < ApplicationController
     # the data includes the scores given by their teammates as well as the scores given by the authors the participant reviewed
     def get_my_scores_data(participant)
         # the set of review maps that my team members used to review me
-        reviews_of_me_maps = TeammateReviewResponseMap.where(reviewed_object_id: @assignment.id, reviewee_id: participant.id).to_a 
+        reviews_of_me_maps = TeammateReviewResponseMap.where(reviewed_object_id: @assignment.id, reviewee_id: participant.id)
+                                                     .includes(responses: { scores: :item })
+                                                     .to_a
 
         # the set of review maps that I used to review my team members
-        reviews_by_me_maps = TeammateReviewResponseMap.where(reviewed_object_id: @assignment.id, reviewer_id: participant.id).to_a
+        reviews_by_me_maps = TeammateReviewResponseMap.where(reviewed_object_id: @assignment.id, reviewer_id: participant.id)
+                                                      .includes(responses: { scores: :item })
+                                                      .to_a
         
-        reviews_of_me = get_heatgrid_data_for(reviews_of_me_maps)
+        reviews_of_me = get_reviews(reviews_of_me_maps)
 
-        reviews_by_me = get_heatgrid_data_for(reviews_by_me_maps)
+        reviews_by_me = get_reviews(reviews_by_me_maps)
 
         # Fetch all review response maps where the current participant is the reviewer and the reviewed object is the current assignment.
         my_reviews_of_other_teams_maps = ReviewResponseMap.where(reviewed_object_id: @assignment.id, reviewer_id: participant.id)
@@ -323,7 +329,7 @@ class GradesController < ApplicationController
             FeedbackResponseMap.find_by(reviewed_object_id: map.id, reviewee_id: participant.id)
         end.compact
 
-        feedback_scores_from_my_reviewees = get_heatgrid_data_for(feedback_from_my_reviewees_maps)
+        feedback_scores_from_my_reviewees = get_reviews(feedback_from_my_reviewees_maps)
 
         avg_score_from_my_teammates = participant.aggregate_teammate_review_grade(reviews_of_me_maps) 
         avg_score_to_my_teammates = participant.aggregate_teammate_review_grade(reviews_by_me_maps) 
@@ -342,7 +348,7 @@ class GradesController < ApplicationController
 
     # Returns heatgrid data for a collection of maps (ReviewResponseMap/FeedbackResponseMap/TeammateReviewResponseMap).
     # Groups submitted scores by round symbol (:Review-Round-1, etc.) and injects SectionHeader sentinels.
-    def get_heatgrid_data_for(maps)
+    def get_reviews(maps)
         reviewee_scores = {}
         return reviewee_scores if maps.empty?
 
@@ -394,7 +400,7 @@ class GradesController < ApplicationController
     end
 
     # Accumulates scores for one round into reviewee_scores and injects SectionHeader sentinels.
-    # Extracted from get_heatgrid_data_for to eliminate the ~50-line duplicate that existed
+    # Extracted from get_reviews to eliminate the ~50-line duplicate that existed
     # between the varying-rubric and non-varying branches.
     def accumulate_round_scores(reviewee_scores, maps, round, questionnaire_id)
         round_symbol = "#{maps.first.questionnaire_type}-Round-#{round}".to_sym
@@ -406,17 +412,13 @@ class GradesController < ApplicationController
             }.last
             next if submitted_response.nil?
 
-            # Filter SectionHeader answers at the DB level (single JOIN instead of N queries).
-            # SectionHeader items have no numeric meaning — their Answer rows (created when
-            # seed data or a form submission includes all item IDs) must not appear as scored
-            # heatgrid rows. inject_section_headers inserts header sentinels separately.
-            scored_answers = submitted_response.scores
-                                               .joins(:item)
-                                               .where.not(items: { question_type: 'SectionHeader' })
+            # Filter SectionHeader answers in Ruby — scores and items are already preloaded
+            # via .includes(responses: { scores: :item }) on the maps query, so no extra DB hit.
+            scored_answers = submitted_response.scores.reject { |s| s.item.question_type == 'SectionHeader' }
 
             scored_answers.each_with_index do |score, idx|
                 reviewee_scores[round_symbol][idx] ||= []
-                reviewee_scores[round_symbol][idx] << get_answer(score, index)
+                reviewee_scores[round_symbol][idx] << get_answer(score, index, submitted_response)
             end
         end
 
@@ -426,16 +428,15 @@ class GradesController < ApplicationController
             }
         end
 
-        inject_section_headers(reviewee_scores[round_symbol], questionnaire_id)
+        insert_section_headers(reviewee_scores[round_symbol], questionnaire_id)
         reviewee_scores
     end
 
-    # Injects SectionHeader items as sentinel hashes into a round's scores array.
-    # The heatgrid scores array is indexed by scored-item position (SectionHeaders have no
-    # answers so they never appear in the scores loop). This method looks up the questionnaire,
-    # walks all items in seq order, and inserts { type: "header", txt: "..." } markers at the
-    # correct positions so the frontend can render heading rows between score rows.
-    def inject_section_headers(round_scores, questionnaire_id)
+    # Splices { type: "header", txt: "..." } sentinel hashes into a round's scores array at
+    # positions matching each SectionHeader item in the questionnaire's item sequence.
+    # SectionHeaders have no answers so they never appear in the scores loop — this pass
+    # re-inserts them so the frontend can render heading rows between score rows.
+    def insert_section_headers(round_scores, questionnaire_id)
         return round_scores if questionnaire_id.nil?
 
         all_items = Item.where(questionnaire_id: questionnaire_id).order(:seq)
@@ -459,27 +460,25 @@ class GradesController < ApplicationController
         round_scores
     end
 
-    def get_answer(score, index)
-        # Determine the name or label to show for the reviewer
-        reviewer_name = if current_user_has_all_heatgrid_data_privileges?(@assignment)
-                           score&.response&.reviewer&.fullname # Show the actual reviewer's name
-                        else
-                            "Participant #{index+1}" # Show generic label (e.g., Participant 1)
-                        end
-        
-        # useful in case of reviews done by reviews_by_me (reviews given by a user to its teammates)
-        # in that case we will need reviewee's name instead of reviewer name because the reviewer will be the user itself.
-        reviewee_name = score&.response&.reviewee&.fullname                        
+    def get_answer(score, index, response = nil)
+        response ||= score.response
 
-        #Return particular score/answer information
-        return {
+        reviewer_name = if current_user_has_all_heatgrid_data_privileges?(@assignment)
+                           response&.reviewer&.fullname
+                        else
+                            "Participant #{index+1}"
+                        end
+
+        reviewee_name = response&.reviewee&.fullname
+
+        {
             id: score.id,
-            item_id:score.item_id,
+            item_id: score.item_id,
             txt: score.item.txt,
-            answer:score.answer,
-            comments:score.comments,
+            answer: score.answer,
+            comments: score.comments,
             reviewer_name: reviewer_name,
             reviewee_name: reviewee_name
         }
-    end 
+    end
 end

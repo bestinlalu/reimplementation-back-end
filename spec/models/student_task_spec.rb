@@ -116,7 +116,7 @@ RSpec.describe StudentTask, type: :model do
     end
   end
 
-  describe ".from_user" do
+  describe ".tasks" do
     it "sorts by a single composite key [course, assignment, stage_deadline]" do
       # Three chained sort_by calls were non-deterministic (each overwrote the previous).
       # The fix uses one sort_by { [course, assignment, stage_deadline] }.
@@ -140,7 +140,7 @@ RSpec.describe StudentTask, type: :model do
       allow(DueDate).to receive(:current_stage_for).and_return("submission")
       allow(DueDate).to receive(:next_due_date).and_return(nil)
       allow(SignedUpTeam).to receive(:find_by).and_return(nil)
-      # from_user chains .includes(...) on the where result, so we need a relation
+      # tasks chains .includes(...) on the where result, so we need a relation
       # double that responds to both includes calls and delegates map to the array.
       relation = double('relation')
       allow(AssignmentParticipant).to receive(:where).with(user_id: user.id).and_return(relation)
@@ -148,7 +148,7 @@ RSpec.describe StudentTask, type: :model do
       allow(relation).to receive(:includes).with(:user).and_return(relation)
       allow(relation).to receive(:map) { |&blk| [p3, p1, p2].map(&blk) }
 
-      tasks = StudentTask.from_user(user)
+      tasks = StudentTask.tasks(user)
 
       courses   = tasks.map(&:course)
       expect(courses).to eq(courses.sort), "tasks should be sorted by course first"
@@ -159,7 +159,7 @@ RSpec.describe StudentTask, type: :model do
     end
   end
 
-  describe "#revise?" do
+  describe "#submission_updated?" do
     let(:participant) { double('participant', id: 1) }
     let(:task) { StudentTask.new(participant: participant, current_stage: 'submission') }
 
@@ -167,7 +167,7 @@ RSpec.describe StudentTask, type: :model do
       it "returns true" do
         team = double('team', hyperlinks: ['http://example.com'], has_submissions?: false)
         allow(participant).to receive(:team).and_return(team)
-        expect(task.send(:revise?)).to be true
+        expect(task.send(:submission_updated?)).to be true
       end
     end
 
@@ -175,7 +175,7 @@ RSpec.describe StudentTask, type: :model do
       it "returns false" do
         team = double('team', hyperlinks: [], has_submissions?: false)
         allow(participant).to receive(:team).and_return(team)
-        expect(task.send(:revise?)).to be false
+        expect(task.send(:submission_updated?)).to be false
       end
     end
 
@@ -185,7 +185,7 @@ RSpec.describe StudentTask, type: :model do
         allow(ReviewResponseMap).to receive(:where).and_return(
           double(joins: double(where: double(exists?: true)))
         )
-        expect(task_review.send(:revise?)).to be true
+        expect(task_review.send(:submission_updated?)).to be true
       end
     end
 
@@ -195,54 +195,54 @@ RSpec.describe StudentTask, type: :model do
         allow(ReviewResponseMap).to receive(:where).and_return(
           double(joins: double(where: double(exists?: false)))
         )
-        expect(task_review.send(:revise?)).to be false
+        expect(task_review.send(:submission_updated?)).to be false
       end
     end
   end
 
-  describe "#not_started?" do
+  describe "#started?" do
     let(:participant) { double('participant', id: 1) }
 
     context "when in work stage and no work done" do
-      it "returns true for submission stage with no submissions" do
+      it "returns false for submission stage with no submissions" do
         task = StudentTask.new(participant: participant, current_stage: 'submission')
         team = double('team', hyperlinks: [], has_submissions?: false)
         allow(participant).to receive(:team).and_return(team)
-        expect(task.not_started?).to be true
+        expect(task.started?).to be false
       end
 
-      it "returns true for review stage with no reviews given" do
+      it "returns false for review stage with no reviews given" do
         task = StudentTask.new(participant: participant, current_stage: 'review')
         allow(ReviewResponseMap).to receive(:where).and_return(
           double(joins: double(where: double(exists?: false)))
         )
-        expect(task.not_started?).to be true
+        expect(task.started?).to be false
       end
     end
 
     context "when in work stage and work has been done" do
-      it "returns false when submission has been made" do
+      it "returns true when submission has been made" do
         task = StudentTask.new(participant: participant, current_stage: 'submission')
         team = double('team', hyperlinks: ['http://example.com'], has_submissions?: false)
         allow(participant).to receive(:team).and_return(team)
-        expect(task.not_started?).to be false
+        expect(task.started?).to be true
       end
     end
 
     context "when not in a work stage" do
       it "returns false for Finished stage" do
         task = StudentTask.new(participant: participant, current_stage: 'Finished')
-        expect(task.not_started?).to be false
+        expect(task.started?).to be false
       end
 
       it "returns false for signup stage" do
         task = StudentTask.new(participant: participant, current_stage: 'signup')
-        expect(task.not_started?).to be false
+        expect(task.started?).to be false
       end
     end
   end
 
-  describe ".teamed_students" do
+  describe ".all_teammates" do
     let!(:institution)     { Institution.create!(name: 'NCSU') }
     let!(:instructor_role) { Role.find_by(name: 'Instructor') || Role.create!(name: 'Instructor') }
     let!(:student_role)    { Role.find_by(name: 'Student')    || Role.create!(name: 'Student') }
@@ -266,7 +266,7 @@ RSpec.describe StudentTask, type: :model do
       add_to_team(team, user, assignment)
       add_to_team(team, teammate, assignment)
 
-      result = StudentTask.teamed_students(user)
+      result = StudentTask.all_teammates(user)
       expect(result).to have_key('CSC 517')
       expect(result['CSC 517']).to include('TS Student Two')
     end
@@ -281,7 +281,7 @@ RSpec.describe StudentTask, type: :model do
         instance_double(Assignment, is_calibrated: true, nil?: false)
       )
 
-      result = StudentTask.teamed_students(user)
+      result = StudentTask.all_teammates(user)
       expect(result.values.flatten).not_to include('TS Student Two')
     end
 
@@ -289,7 +289,7 @@ RSpec.describe StudentTask, type: :model do
       team = AssignmentTeam.create!(name: 'Team Solo', parent_id: assignment.id)
       add_to_team(team, user, assignment)
 
-      result = StudentTask.teamed_students(user)
+      result = StudentTask.all_teammates(user)
       expect(result).to be_empty
     end
 
@@ -300,12 +300,12 @@ RSpec.describe StudentTask, type: :model do
       add_to_team(team, teammate, assignment)
       add_to_team(team, student3, assignment)
 
-      result = StudentTask.teamed_students(user)
+      result = StudentTask.all_teammates(user)
       expect(result['CSC 517']).to eq(result['CSC 517'].sort)
     end
   end
 
-  describe ".get_timeline_data" do
+  describe ".get_events_for_assignment" do
     let!(:institution)  { Institution.find_by(name: 'NCSU') || Institution.create!(name: 'NCSU') }
     let!(:inst_role)    { Role.find_by(name: 'Instructor') || Role.create!(name: 'Instructor') }
     let!(:tl_instructor) { User.create!(name: 'tl_inst', email: 'tl_inst@test.com', full_name: 'TL Inst', password: 'password', role_id: inst_role.id, institution: institution) }
@@ -322,7 +322,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_timeline_data(assignment, participant)
+      timeline = StudentTask.get_events_for_assignment(assignment, participant)
       submission_entry = timeline.find { |t| t['name'].include?('Submission') }
       expect(submission_entry).not_to be_nil
       expect(submission_entry['id']).to be_nil
@@ -347,7 +347,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_timeline_data(assignment, participant)
+      timeline = StudentTask.get_events_for_assignment(assignment, participant)
       review_entry = timeline.find { |t| t['name'].include?('peer review') }
       expect(review_entry).not_to be_nil
       expect(review_entry['id']).to eq(99)
@@ -371,7 +371,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_timeline_data(assignment, participant)
+      timeline = StudentTask.get_events_for_assignment(assignment, participant)
       expect(timeline.any? { |t| t['name'].include?('peer review') }).to be false
     end
 
@@ -395,7 +395,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_timeline_data(assignment, participant)
+      timeline = StudentTask.get_events_for_assignment(assignment, participant)
       review_entries = timeline.select { |t| t['name'].include?('peer review') }
       expect(review_entries.map { |e| e['round'] }).to contain_exactly(1, 2)
     end
@@ -415,7 +415,7 @@ RSpec.describe StudentTask, type: :model do
       allow(ordered).to receive(:first).and_return(nil)
       allow(Response).to receive(:where).with(map_id: 2, is_submitted: true).and_return(double(order: ordered))
 
-      timeline = StudentTask.get_timeline_data(assignment, participant)
+      timeline = StudentTask.get_events_for_assignment(assignment, participant)
       expect(timeline.any? { |t| t['name'] == 'Author feedback' }).to be false
     end
 
@@ -431,7 +431,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_timeline_data(assignment, participant)
+      timeline = StudentTask.get_events_for_assignment(assignment, participant)
       dates = timeline.map { |t| t['date'] }
       expect(dates).to eq(dates.sort)
     end

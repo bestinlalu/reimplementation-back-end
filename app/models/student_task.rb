@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 class StudentTask
-  attr_accessor :assignment, :course, :current_stage, :participant, :stage_deadline, :topic, :permission_granted, :due_dates, :revise, :not_started, :active_round
+  attr_accessor :assignment, :course, :current_stage, :participant, :stage_deadline, :topic, :permission_granted, 
+                :due_dates, :submission_updated, :started, :active_round
 
   # Initializes a new instance of the StudentTask class
   def initialize(args)
@@ -25,8 +26,8 @@ class StudentTask
     topic_name = SignedUpTeam.find_by(team_id: team&.id)&.project_topic&.topic_name
     current_stage = DueDate.current_stage_for(assignment)
 
-    # Determine the active round from the current due date so that revise? and
-    # not_started? can scope their checks to the round the student is actually in,
+    # Determine the active round from the current due date so that submission_updated? and
+    # started? can scope their checks to the round the student is actually in,
     # rather than checking across all rounds (which causes round-1 work to make a
     # round-2 task appear started even when the student hasn't touched round 2 yet).
     active_round = next_due&.round
@@ -41,8 +42,8 @@ class StudentTask
       participant:        participant,
       active_round:       active_round
     )
-    task.revise = task.revise?
-    task.not_started = task.not_started?
+    task.submission_updated = task.submission_updated?
+    task.started = task.started?
     task
   end
 
@@ -51,7 +52,7 @@ class StudentTask
   # Three chained sort_by calls are not stable — each overwrites the previous ordering.
   # A single composite key [course, assignment, stage_deadline] gives deterministic,
   # consistent ordering in one pass.
-  def self.from_user(user)
+  def self.tasks(user)
     # Preload the associations that create_from_participant dereferences for every
     # participant so that the list endpoint does not fire one query per participant
     # for each of these:
@@ -74,7 +75,7 @@ class StudentTask
 
   # Creates a StudentTask from a participant ID. Returns nil if the ID does not
   # match any AssignmentParticipant (other Participant subclasses are excluded to
-  # avoid type-mismatch 500s). Preloads the same associations as from_user so
+  # avoid type-mismatch 500s). Preloads the same associations as tasks so
   # create_from_participant does not fire redundant queries per attribute access.
   def self.from_participant_id(id)
     participant = AssignmentParticipant
@@ -88,8 +89,8 @@ class StudentTask
   end
 
   # Builds a unified timeline by merging due dates and actual activity,
-  # sorted chronologically — mirrors the old get_timeline_data logic.
-  def self.get_timeline_data(assignment, participant)
+  # sorted chronologically — mirrors the old get_events_for_assignment logic.
+  def self.get_events_for_assignment(assignment, participant)
     timeline = []
 
     # 1. Due dates — labeled as "X deadline" mirroring old get_due_date_data behavior
@@ -143,8 +144,8 @@ class StudentTask
   end
 
   # Returns a hash of { course_name => [teammate_fullnames] } for all
-  # assignment teams the user has been part of, mirroring the old teamed_students logic.
-  def self.teamed_students(user)
+  # assignment teams the user has been part of, mirroring the old all_teammates logic.
+  def self.all_teammates(user)
     result = {}
     user.teams.each do |team|
       next unless team.is_a?(AssignmentTeam)
@@ -162,14 +163,14 @@ class StudentTask
   end
 
   # Returns true if the student has started work in the current stage.
-  def revise?
+  def submission_updated?
     content_submitted_in_current_stage? ||
       reviews_given_in_current_stage?
   end
 
-  # Returns true if the assignment is in an active stage but the student hasn't started yet.
-  def not_started?
-    in_work_stage? && !revise?
+  # Returns true if the student has begun work in the current active stage.
+  def started?
+    in_work_stage? && submission_updated?
   end
 
   private

@@ -460,9 +460,9 @@ RSpec.describe 'Grades API', type: :request do
   end
 
   # -------------------------------------------------------------------------
-  # inject_section_headers — section headings appear in view_our_scores
+  # insert_section_headers — section headings appear in view_our_scores
   # -------------------------------------------------------------------------
-  # inject_section_headers is a private helper called inside get_heatgrid_data_for.
+  # insert_section_headers is a private helper called inside get_reviews.
   # We test its effect through the public view_our_scores endpoint: when a questionnaire
   # has SectionHeader items, the response's round arrays must contain { type: "header" }
   # sentinel hashes at the correct positions.

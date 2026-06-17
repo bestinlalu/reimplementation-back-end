@@ -5,13 +5,13 @@ class StudentTasksController < ApplicationController
     current_user_has_student_privileges?
   end
   def list
-    @student_tasks = StudentTask.from_user(current_user)
+    @student_tasks = StudentTask.tasks(current_user)
     render json: @student_tasks, status: :ok
   end
 
   # GET /student_tasks/teammates
   def team
-    render json: StudentTask.teamed_students(current_user), status: :ok
+    render json: StudentTask.all_teammates(current_user), status: :ok
   end
 
   # Retrieves a StudentTask by AssignmentParticipant ID.
@@ -30,7 +30,7 @@ class StudentTasksController < ApplicationController
       return
     end
 
-    @student_task.due_dates = StudentTask.get_timeline_data(
+    @student_task.due_dates = StudentTask.get_events_for_assignment(
       @student_task.participant.assignment,
       @student_task.participant
     )

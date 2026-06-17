@@ -118,10 +118,34 @@ class AssignmentTeam < Team
     submitted_files.any? || submitted_hyperlinks.present?
   end
 
-  # Computes the average review grade for an assignment team.
-  # This method aggregates scores from all ReviewResponseMaps (i.e., all reviewers of the team).
+  # Computes the average peer review grade for this team on its assignment.
+  # Expertiza assessment_score logic:
+  #   score = (aggregate_questionnaire_score / maximum_score) * 100
+  # Only submitted responses are counted; responses with zero maximum score are excluded.
+  # review_mappings is scoped to parent_id (the assignment) so cross-assignment maps are excluded.
   def aggregate_review_grade
-    compute_average_review_score(review_mappings)
+    maps = review_mappings
+             .where(reviewed_object_id: parent_id)
+             .includes(responses: { scores: :item })
+    return nil if maps.blank?
+
+    total = 0.0
+    count = 0
+
+    maps.each do |map|
+      map.responses.select(&:is_submitted).each do |response|
+        score = response.aggregate_questionnaire_score
+        max   = response.maximum_score
+        next if max.nil? || max.zero? || score.to_f <= 0
+
+        total += (score.to_f / max.to_f) * 100
+        count += 1
+      end
+    end
+
+    return nil if count.zero?
+
+    (total / count).round(2)
   end
 
   # Adds a participant to this team.
@@ -203,12 +227,6 @@ class AssignmentTeam < Team
   # Whether the team has submitted work or not
   def has_submissions?
     submitted_files.any? || submitted_hyperlinks.present?
-  end
-
-  # Computes the average review grade for an assignment team.
-  # This method aggregates scores from all ReviewResponseMaps (i.e., all reviewers of the team).
-  def aggregate_review_grade
-    compute_average_review_score(review_mappings)
   end
 
   protected
