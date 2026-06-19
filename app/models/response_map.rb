@@ -81,32 +81,74 @@ class ResponseMap < ApplicationRecord
     false
   end
 
-  # Computes the average score (as a fraction between 0 and 1) across the latest submitted responses
-  # from each round for corresponding ResponseMap.
-  def aggregate_reviewers_score
-    # Return nil if there are no responses for this map
+  # Computes the normalized score (0–1) for this map, weighted by each round's
+  # questionnaire_weight from assignment_questionnaires.
+  # Takes the latest submitted response per round, normalizes it (score/max),
+  # multiplies by that round's weight, and returns Σ(normalized × weight) / Σ(weight).
+  def review_grade
     return nil if responses.empty?
 
-    # Group all responses by round, then select the latest one per round based on the most recent revision in that round.
     latest_responses_by_round = responses
                                 .group_by(&:round)
                                 .transform_values { |resps| resps.max_by(&:updated_at) }
 
-    response_score = 0.0
-    total_score = 0.0
+    weighted_score  = 0.0
+    total_weight    = 0.0
     submitted_found = false
 
     latest_responses_by_round.each_value do |response|
       next unless response.is_submitted
 
-      submitted_found = true
-      response_score += response.aggregate_questionnaire_score
-      total_score += response.maximum_score
+      max = response.maximum_score
+      next if max.nil? || max.zero?
+
+      aq     = assignment.assignment_questionnaires.find_by(used_in_round: response.round)
+      aq   ||= assignment.assignment_questionnaires.find_by(used_in_round: nil)
+      weight = aq&.questionnaire_weight&.to_f || 1.0
+
+      submitted_found  = true
+      weighted_score  += (response.aggregate_questionnaire_score.to_f / max) * weight
+      total_weight    += weight
     end
 
     return nil unless submitted_found
+    return 0 if total_weight.zero?
 
-    total_score.positive? ? (response_score.to_f / total_score) : 0
+    weighted_score / total_weight
+  end
+
+  # All response map types expose a common aggregate_response_score interface.
+  # Subclasses (e.g. QuizResponseMap) may override if their scoring differs.
+  alias aggregate_response_score review_grade
+
+  # Computes a weighted average reviewer score from a collection of ResponseMaps.
+  # Each map contributes: review_grade × reviewer_reputation.
+  # reviewer_reputation defaults to 1.0 until Uchswas/Hamer integration is added.
+  # Used by AssignmentTeam#aggregate_reviewer_score and AssignmentParticipant#aggregate_teammate_review_grade.
+  def self.compute_average_reviewer_score(maps)
+    return nil if maps.blank?
+
+    weighted_sum = 0.0
+    total_weight = 0.0
+
+    maps.each do |map|
+      grade = map.review_grade
+      next if grade.nil?
+
+      reputation    = reviewer_reputation_for(map)
+      weighted_sum += grade * reputation
+      total_weight += reputation
+    end
+
+    return nil if total_weight.zero?
+
+    (weighted_sum / total_weight * 100).round(2)
+  end
+
+  # Returns the reviewer's reputation weight for this map.
+  # Placeholder — replace with Uchswas review-grader lookup or Hamer score.
+  def self.reviewer_reputation_for(_map)
+    1.0
   end
 
   # Best-effort timestamp of when the reviewee (or their team) last touched the work.

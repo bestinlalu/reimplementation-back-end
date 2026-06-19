@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 class AssignmentParticipant < Participant
-  include ReviewAggregator
   has_many :sent_invitations, class_name: 'Invitation', foreign_key: 'from_id'
   has_many :review_mappings, class_name: 'ReviewResponseMap', foreign_key: 'reviewee_id'
   has_many :response_maps, foreign_key: 'reviewee_id'
@@ -51,6 +50,6 @@ class AssignmentParticipant < Participant
   end
 
   def aggregate_teammate_review_grade(teammate_review_mappings)
-    compute_average_review_score(teammate_review_mappings)
+    ResponseMap.compute_average_reviewer_score(teammate_review_mappings)
   end
 end

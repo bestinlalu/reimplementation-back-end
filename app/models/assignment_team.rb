@@ -2,7 +2,6 @@
 
 class AssignmentTeam < Team
   include Analytic::AssignmentTeamAnalytic
-  include ReviewAggregator
   # Each AssignmentTeam must belong to a specific assignment
   belongs_to :assignment, class_name: 'Assignment', foreign_key: 'parent_id'
   has_many :review_mappings, class_name: 'ReviewResponseMap', foreign_key: 'reviewee_id'
@@ -118,34 +117,13 @@ class AssignmentTeam < Team
     submitted_files.any? || submitted_hyperlinks.present?
   end
 
-  # Computes the average peer review grade for this team on its assignment.
-  # Expertiza assessment_score logic:
-  #   score = (aggregate_questionnaire_score / maximum_score) * 100
-  # Only submitted responses are counted; responses with zero maximum score are excluded.
-  # review_mappings is scoped to parent_id (the assignment) so cross-assignment maps are excluded.
-  def aggregate_review_grade
+  # Computes the weighted average peer review grade for this team.
+  # Scopes maps to this assignment then delegates to ResponseMap.compute_average_reviewer_score.
+  def aggregate_reviewer_score
     maps = review_mappings
              .where(reviewed_object_id: parent_id)
              .includes(responses: { scores: :item })
-    return nil if maps.blank?
-
-    total = 0.0
-    count = 0
-
-    maps.each do |map|
-      map.responses.select(&:is_submitted).each do |response|
-        score = response.aggregate_questionnaire_score
-        max   = response.maximum_score
-        next if max.nil? || max.zero? || score.to_f <= 0
-
-        total += (score.to_f / max.to_f) * 100
-        count += 1
-      end
-    end
-
-    return nil if count.zero?
-
-    (total / count).round(2)
+    ResponseMap.compute_average_reviewer_score(maps)
   end
 
   # Adds a participant to this team.

@@ -40,7 +40,7 @@ class Response < ApplicationRecord
 
   # Returns true if this response's score differs from peers by more than the assignment notification limit
   # This comparison is response-specific (uses per-response max score and questionnaire settings),
-  # so it stays on Response instead of the generic ReviewAggregator mixin.
+  # so it stays on Response instead of ResponseMap.compute_average_reviewer_score.
   def reportable_difference?
     map_class = map.class
     # gets all responses made by a reviewee

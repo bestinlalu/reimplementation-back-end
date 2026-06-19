@@ -276,7 +276,7 @@ class GradesController < ApplicationController
                                                    .includes(responses: { scores: :item })
                                                    .to_a
         reviews_of_our_work = get_reviews(reviews_of_our_work_maps)
-        avg_score_of_our_work = team.aggregate_review_grade
+        avg_score_of_our_work = team.aggregate_reviewer_score
 
         # Embed all team metadata directly in this response so the frontend can populate
         # team name, grade, submission links, and member list in a single API call.
