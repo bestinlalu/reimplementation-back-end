@@ -117,13 +117,41 @@ class AssignmentTeam < Team
     submitted_files.any? || submitted_hyperlinks.present?
   end
 
-  # Computes the weighted average peer review grade for this team.
-  # Scopes maps to this assignment then delegates to ResponseMap.compute_average_reviewer_score.
+  # Computes the weighted average peer review grade for this team across all reviewers.
+  # Each reviewer's grade (ResponseMap#review_grade) is weighted by their reputation score.
   def aggregate_reviewer_score
     maps = review_mappings
              .where(reviewed_object_id: parent_id)
              .includes(responses: { scores: :item })
-    ResponseMap.compute_average_reviewer_score(maps)
+    self.class.compute_average_reviewer_score(maps)
+  end
+
+  # Averages review_grade across a collection of ResponseMaps, weighted by reviewer reputation.
+  # Reputation defaults to 1.0 — replace reviewer_reputation_for with Uchswas/Hamer lookup when available.
+  def self.compute_average_reviewer_score(maps)
+    return nil if maps.blank?
+
+    weighted_sum = 0.0
+    total_weight = 0.0
+
+    maps.each do |map|
+      grade = map.review_grade
+      next if grade.nil?
+
+      reputation    = reviewer_reputation_for(map)
+      weighted_sum += grade * reputation
+      total_weight += reputation
+    end
+
+    return nil if total_weight.zero?
+
+    (weighted_sum / total_weight * 100).round(2)
+  end
+
+  # Returns the reviewer's reputation weight for this map.
+  # Placeholder — replace with Uchswas review-grader lookup or Hamer score.
+  def self.reviewer_reputation_for(_map)
+    1.0
   end
 
   # Adds a participant to this team.

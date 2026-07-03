@@ -121,36 +121,6 @@ class ResponseMap < ApplicationRecord
   # Subclasses (e.g. QuizResponseMap) may override if their scoring differs.
   alias aggregate_response_score review_grade
 
-  # Computes a weighted average reviewer score from a collection of ResponseMaps.
-  # Each map contributes: review_grade × reviewer_reputation.
-  # reviewer_reputation defaults to 1.0 until Uchswas/Hamer integration is added.
-  # Used by AssignmentTeam#aggregate_reviewer_score and AssignmentParticipant#aggregate_teammate_review_grade.
-  def self.compute_average_reviewer_score(maps)
-    return nil if maps.blank?
-
-    weighted_sum = 0.0
-    total_weight = 0.0
-
-    maps.each do |map|
-      grade = map.review_grade
-      next if grade.nil?
-
-      reputation    = reviewer_reputation_for(map)
-      weighted_sum += grade * reputation
-      total_weight += reputation
-    end
-
-    return nil if total_weight.zero?
-
-    (weighted_sum / total_weight * 100).round(2)
-  end
-
-  # Returns the reviewer's reputation weight for this map.
-  # Placeholder — replace with Uchswas review-grader lookup or Hamer score.
-  def self.reviewer_reputation_for(_map)
-    1.0
-  end
-
   # Best-effort timestamp of when the reviewee (or their team) last touched the work.
   def latest_submission_at_for_reviewee
     return nil unless reviewee

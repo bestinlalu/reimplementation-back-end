@@ -305,7 +305,7 @@ RSpec.describe StudentTask, type: :model do
     end
   end
 
-  describe ".get_events_for_assignment" do
+  describe ".timeline_events" do
     let!(:institution)  { Institution.find_by(name: 'NCSU') || Institution.create!(name: 'NCSU') }
     let!(:inst_role)    { Role.find_by(name: 'Instructor') || Role.create!(name: 'Instructor') }
     let!(:tl_instructor) { User.create!(name: 'tl_inst', email: 'tl_inst@test.com', full_name: 'TL Inst', password: 'password', role_id: inst_role.id, institution: institution) }
@@ -322,7 +322,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_events_for_assignment(assignment, participant)
+      timeline = StudentTask.timeline_events(assignment, participant)
       submission_entry = timeline.find { |t| t['name'].include?('Submission') }
       expect(submission_entry).not_to be_nil
       expect(submission_entry['id']).to be_nil
@@ -347,7 +347,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_events_for_assignment(assignment, participant)
+      timeline = StudentTask.timeline_events(assignment, participant)
       review_entry = timeline.find { |t| t['name'].include?('peer review') }
       expect(review_entry).not_to be_nil
       expect(review_entry['id']).to eq(99)
@@ -371,7 +371,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_events_for_assignment(assignment, participant)
+      timeline = StudentTask.timeline_events(assignment, participant)
       expect(timeline.any? { |t| t['name'].include?('peer review') }).to be false
     end
 
@@ -395,7 +395,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_events_for_assignment(assignment, participant)
+      timeline = StudentTask.timeline_events(assignment, participant)
       review_entries = timeline.select { |t| t['name'].include?('peer review') }
       expect(review_entries.map { |e| e['round'] }).to contain_exactly(1, 2)
     end
@@ -415,7 +415,7 @@ RSpec.describe StudentTask, type: :model do
       allow(ordered).to receive(:first).and_return(nil)
       allow(Response).to receive(:where).with(map_id: 2, is_submitted: true).and_return(double(order: ordered))
 
-      timeline = StudentTask.get_events_for_assignment(assignment, participant)
+      timeline = StudentTask.timeline_events(assignment, participant)
       expect(timeline.any? { |t| t['name'] == 'Author feedback' }).to be false
     end
 
@@ -431,7 +431,7 @@ RSpec.describe StudentTask, type: :model do
       allow(feedback_relation).to receive(:find_each)
       allow(FeedbackResponseMap).to receive(:where).with(reviewer_id: 1).and_return(feedback_relation)
 
-      timeline = StudentTask.get_events_for_assignment(assignment, participant)
+      timeline = StudentTask.timeline_events(assignment, participant)
       dates = timeline.map { |t| t['date'] }
       expect(dates).to eq(dates.sort)
     end

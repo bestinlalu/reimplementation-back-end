@@ -89,8 +89,8 @@ class StudentTask
   end
 
   # Builds a unified timeline by merging due dates and actual activity,
-  # sorted chronologically — mirrors the old get_events_for_assignment logic.
-  def self.get_events_for_assignment(assignment, participant)
+  # sorted chronologically — mirrors the old timeline_events logic.
+  def self.timeline_events(assignment, participant)
     timeline = []
 
     # 1. Due dates — labeled as "X deadline" mirroring old get_due_date_data behavior

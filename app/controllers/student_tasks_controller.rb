@@ -30,7 +30,7 @@ class StudentTasksController < ApplicationController
       return
     end
 
-    @student_task.due_dates = StudentTask.get_events_for_assignment(
+    @student_task.due_dates = StudentTask.timeline_events(
       @student_task.participant.assignment,
       @student_task.participant
     )

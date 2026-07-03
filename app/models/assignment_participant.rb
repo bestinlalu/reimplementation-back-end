@@ -50,6 +50,6 @@ class AssignmentParticipant < Participant
   end
 
   def aggregate_teammate_review_grade(teammate_review_mappings)
-    ResponseMap.compute_average_reviewer_score(teammate_review_mappings)
+    AssignmentTeam.compute_average_reviewer_score(teammate_review_mappings)
   end
 end
