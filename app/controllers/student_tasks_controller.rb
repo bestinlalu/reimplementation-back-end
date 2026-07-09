@@ -9,11 +9,6 @@ class StudentTasksController < ApplicationController
     render json: @student_tasks, status: :ok
   end
 
-  # GET /student_tasks/teammates
-  def team
-    render json: StudentTask.all_teammates(current_user), status: :ok
-  end
-
   # Retrieves a StudentTask by AssignmentParticipant ID.
   # Delegates lookup and preloading to from_participant_id so the find_by +
   # nil-guard + create_from_participant logic is not duplicated here.
@@ -30,10 +25,6 @@ class StudentTasksController < ApplicationController
       return
     end
 
-    @student_task.due_dates = StudentTask.timeline_events(
-      @student_task.participant.assignment,
-      @student_task.participant
-    )
     render json: @student_task, status: :ok
   end
 

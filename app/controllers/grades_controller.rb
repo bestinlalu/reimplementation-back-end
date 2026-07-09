@@ -399,7 +399,7 @@ class GradesController < ApplicationController
         reviewee_scores
     end
 
-    # Accumulates scores for one round into reviewee_scores and injects SectionHeader sentinels.
+    # Accumulates scores for one round into reviewee_scores and inserts section header marker objects.
     # Extracted from get_reviews to eliminate the ~50-line duplicate that existed
     # between the varying-rubric and non-varying branches.
     def accumulate_round_scores(reviewee_scores, maps, round, questionnaire_id)

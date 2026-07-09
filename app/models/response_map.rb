@@ -121,6 +121,27 @@ class ResponseMap < ApplicationRecord
   # Subclasses (e.g. QuizResponseMap) may override if their scoring differs.
   alias aggregate_response_score review_grade
 
+  # Averages review_grade across a collection of ResponseMaps.
+  # Called by AssignmentTeam#aggregate_reviewer_score and AssignmentParticipant#aggregate_teammate_review_grade.
+  def self.compute_average_reviewer_score(maps)
+    return nil if maps.blank?
+
+    weighted_sum = 0.0
+    total_weight = 0.0
+
+    maps.each do |map|
+      grade = map.review_grade
+      next if grade.nil?
+
+      weighted_sum += grade
+      total_weight += 1.0
+    end
+
+    return nil if total_weight.zero?
+
+    (weighted_sum / total_weight * 100).round(2)
+  end
+
   # Best-effort timestamp of when the reviewee (or their team) last touched the work.
   def latest_submission_at_for_reviewee
     return nil unless reviewee

@@ -50,7 +50,6 @@ Rails.application.routes.draw do
         collection do
           get :list, action: :list
           get 'show/:id', action: :show
-          get :team, action: :team
         end
       end
 
@@ -158,7 +157,9 @@ Rails.application.routes.draw do
         collection do
           get '/user/:user_id', to: 'participants#list_user_participants'
           get '/assignment/:assignment_id', to: 'participants#list_assignment_participants'
+          get '/teammates', to: 'participants#teammates'
           get '/:id', to: 'participants#show'
+          get '/:id/timeline', to: 'participants#timeline'
           post '/:authorization', to: 'participants#add'
           patch '/:id/:authorization', to: 'participants#update_authorization'
           delete '/:id', to: 'participants#destroy'

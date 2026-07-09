@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 class StudentTask
-  attr_accessor :assignment, :course, :current_stage, :participant, :stage_deadline, :topic, :permission_granted, 
-                :due_dates, :submission_updated, :started, :active_round
+  attr_accessor :assignment, :course, :current_stage, :participant, :stage_deadline, :topic, :permission_granted,
+                :submission_updated, :started, :active_round
 
   # Initializes a new instance of the StudentTask class
   def initialize(args)
@@ -13,7 +13,6 @@ class StudentTask
     @stage_deadline = args[:stage_deadline]
     @topic = args[:topic]
     @permission_granted = args[:permission_granted]
-    @due_dates = args[:due_dates]
     @active_round = args[:active_round]
   end
 
@@ -65,7 +64,7 @@ class StudentTask
     #                                     not a first-class has_one that AR can :include)
     #   SignedUpTeam / ProjectTopic    →  depends on team, same constraint
     #   DueDate.next_due_date          →  class method; hits AR cache after assignment preload
-    #   reviews_given_in_current_stage →  scoped EXISTS query, one per participant
+    #   reviews_written_in_current_stage →  scoped EXISTS query, one per participant
     AssignmentParticipant.where(user_id: user.id)
                          .includes(assignment: :course)
                          .includes(:user)
@@ -88,84 +87,10 @@ class StudentTask
     create_from_participant(participant)
   end
 
-  # Builds a unified timeline by merging due dates and actual activity,
-  # sorted chronologically — mirrors the old timeline_events logic.
-  def self.timeline_events(assignment, participant)
-    timeline = []
-
-    # 1. Due dates — labeled as "X deadline" mirroring old get_due_date_data behavior
-    DueDate.fetch_due_dates(assignment).each do |due_date|
-      timeline << {
-        'id'    => nil,
-        'name'  => due_date.round && due_date.round > 1 ? "#{due_date.deadline_name} deadline (round #{due_date.round})" : "#{due_date.deadline_name} deadline",
-        'date'  => due_date.due_at.iso8601,
-        'type'  => due_date.deadline_type_id,
-        'round' => due_date.round
-      }
-    end
-
-    # 2. Peer reviews given by this participant — one timeline entry per submitted Response.
-    # The original code called Response.where(map_id: map.id).last, which returned only the
-    # most recent Response for each ReviewResponseMap. For a 2-round assignment, one map has
-    # two Response rows (round 1 and round 2). Using .last silently dropped the round 1 entry,
-    # so the timeline showed "Round 2 peer review" with no corresponding "Round 1 peer review".
-    # Iterating with find_each ensures all rounds are added as separate timeline events.
-    ReviewResponseMap.where(reviewer_id: participant.id).find_each do |map|
-      # Only submitted responses — draft/unsubmitted records must not appear in the timeline.
-      # Order by updated_at desc so find_each still benefits from batching but each record
-      # is a real submitted response. find_each is used (not .last) so both round 1 and
-      # round 2 responses for the same map are captured as separate timeline events.
-      Response.where(map_id: map.id, is_submitted: true).order(updated_at: :desc).each do |response|
-        timeline << {
-          'id'    => response.id,
-          'name'  => "Round #{response.round} peer review",
-          'date'  => response.updated_at.iso8601,
-          'type'  => ExpertizaConstants::DeadlineTypes::REVIEW,
-          'round' => response.round
-        }
-      end
-    end
-
-    # 3. Author feedback given by this participant — submitted only, most recent per map
-    FeedbackResponseMap.where(reviewer_id: participant.id).find_each do |map|
-      response = Response.where(map_id: map.id, is_submitted: true).order(updated_at: :desc).first
-      next if response.nil?
-
-      timeline << {
-        'id'    => response.id,
-        'name'  => 'Author feedback',
-        'date'  => response.updated_at.iso8601,
-        'type'  => nil,
-        'round' => response.round
-      }
-    end
-
-    timeline.sort_by { |item| item['date'] }
-  end
-
-  # Returns a hash of { course_name => [teammate_fullnames] } for all
-  # assignment teams the user has been part of, mirroring the old all_teammates logic.
-  def self.all_teammates(user)
-    result = {}
-    user.teams.each do |team|
-      next unless team.is_a?(AssignmentTeam)
-      assignment = Assignment.find_by(id: team.parent_id)
-      next if assignment.nil? || assignment.is_calibrated
-
-      course_name = assignment.course&.name || 'Unknown Course'
-      teammates = team.users.where.not(id: user.id).map(&:full_name)
-      next if teammates.empty?
-
-      result[course_name] ||= []
-      result[course_name] |= teammates
-    end
-    result.transform_values(&:sort).sort.to_h
-  end
-
   # Returns true if the student has started work in the current stage.
   def submission_updated?
     content_submitted_in_current_stage? ||
-      reviews_given_in_current_stage?
+      reviews_written_in_current_stage?
   end
 
   # Returns true if the student has begun work in the current active stage.
@@ -188,7 +113,7 @@ class StudentTask
     team.hyperlinks.present? || team.has_submissions?
   end
 
-  def reviews_given_in_current_stage?
+  def reviews_written_in_current_stage?
     return false unless current_stage == 'review'
     # Scope to the active round so that completing round-1 reviews does not make a
     # round-2 review task appear started when the student has not yet touched round 2.
