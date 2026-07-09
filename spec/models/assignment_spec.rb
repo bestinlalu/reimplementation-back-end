@@ -10,7 +10,7 @@ RSpec.describe Assignment, type: :model do
   let(:answer2) { Answer.new(answer: 1, comments: 'Answer text', item_id: 1) }
   
   include RolesHelper
-  before(:all) { @roles = create_roles_hierarchy } # Create the full roles hierarchy once for creating the instructor role later
+  before(:each) { @roles = create_roles_hierarchy }
   let(:institution) { Institution.create!(name: "NC State") } # All users belong to the same institution to satisfy foreign key constraints.
   let(:instructor) { User.create!(name: "instructor", full_name: "Instructor User", email: "instructor@example.com", password_digest: "password", role_id: @roles[:instructor].id, institution_id: institution.id) }
 
