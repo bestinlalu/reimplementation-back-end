@@ -4,7 +4,7 @@ require 'swagger_helper'
 require 'json_web_token'
 
 RSpec.describe 'StudentTasks API', type: :request do
-  before(:each) do
+  before(:all) do
     @roles = create_roles_hierarchy
   end
 

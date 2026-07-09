@@ -151,7 +151,8 @@ RSpec.describe AssignmentParticipant, type: :model do
     end
 
     it "excludes calibrated assignments" do
-      calibrated = create(:assignment, :with_course, is_calibrated: true)
+      calibrated = create(:assignment, :with_course)
+      calibrated.update_columns(is_calibrated: true)
       team = AssignmentTeam.create!(name: 'AP Team Cal', parent_id: calibrated.id)
       add_to_team(team, user, calibrated)
       add_to_team(team, teammate, calibrated)
