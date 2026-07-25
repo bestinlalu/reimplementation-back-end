@@ -303,7 +303,7 @@ RSpec.describe DueDate, type: :model do
       expect(DueDate.current_stage_for(assignment)).to eq('Finished')
     end
 
-    it "returns 'Unknown' for an unrecognised deadline_type_id" do
+    it "returns 'Unknown' for an unrecognized deadline_type_id" do
       DueDate.create!(parent: assignment, due_at: 3.days.from_now, deadline_type_id: 99,
                       submission_allowed_id: 3, review_allowed_id: 3)
       expect(DueDate.current_stage_for(assignment)).to eq('Unknown')
