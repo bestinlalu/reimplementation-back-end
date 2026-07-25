@@ -294,6 +294,7 @@ class GradesController < ApplicationController
         }
 
         {
+            assignment_name:        @assignment.name,
             reviews_of_our_work:    reviews_of_our_work,
             avg_score_of_our_work:  avg_score_of_our_work,
             team_members:           team_members
