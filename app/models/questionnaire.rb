@@ -132,7 +132,13 @@ class Questionnaire < ApplicationRecord
       false
     end
 
-    def max_possible_score
+  # Pre-calculates the sum of weights for all scored items (excludes SectionHeaders).
+  # Used by ResponseMap#review_grade to normalize scores per round without repeating the query.
+  def total_item_weight
+    items.reject { |i| i.question_type == 'SectionHeader' }.sum(&:weight)
+  end
+
+  def max_possible_score
       results = Questionnaire.joins('INNER JOIN items ON items.questionnaire_id = questionnaires.id')
                             .select('SUM(items.weight) * questionnaires.max_question_score as max_score')
                             .where('questionnaires.id = ?', id)

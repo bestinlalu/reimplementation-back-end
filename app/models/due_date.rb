@@ -3,7 +3,7 @@
 class DueDate < ApplicationRecord
   include Comparable
   # Any due date with deadline_type_id == DueDate::REVIEW_DEADLINE_TYPE_ID (constant = 2) is treated as a review deadline and counts as a review round
-  REVIEW_DEADLINE_TYPE_ID = 2 
+  REVIEW_DEADLINE_TYPE_ID = 2
   # Named constants for teammate review statuses
   ALLOWED = 3
   LATE_ALLOWED = 2
@@ -14,6 +14,14 @@ class DueDate < ApplicationRecord
   validates :due_at, presence: true
 
   attr_accessor :teammate_review_allowed, :submission_allowed, :review_allowed
+
+  # Returns the current stage name for an assignment based on its next upcoming due date
+  def self.current_stage_for(assignment)
+    next_due = next_due_date(assignment)
+    return 'Finished' unless next_due
+
+    ExpertizaConstants::DeadlineTypes::NAMES[next_due.deadline_type_id] || 'Unknown'
+  end
 
   def due_at_is_valid_datetime
     errors.add(:due_at, 'must be a valid datetime') unless due_at.is_a?(Time)

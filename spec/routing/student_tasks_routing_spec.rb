@@ -27,5 +27,17 @@ RSpec.describe StudentTasksController, type: :routing do
     it "routes to #destroy" do
       expect(delete: "/student_tasks/1").to route_to("student_tasks#destroy", id: "1")
     end
+
+    it "routes GET /student_tasks/list to #list" do
+      expect(get: "/student_tasks/list").to route_to("student_tasks#list")
+    end
+
+    it "routes GET /student_tasks/show/:id to #show" do
+      expect(get: "/student_tasks/show/1").to route_to("student_tasks#show", id: "1")
+    end
+
+    it "routes GET /student_tasks/team to #team" do
+      expect(get: "/student_tasks/team").to route_to("student_tasks#team")
+    end
   end
 end
