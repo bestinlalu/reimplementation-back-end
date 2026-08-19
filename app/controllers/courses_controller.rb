@@ -10,7 +10,11 @@ class CoursesController < ApplicationController
   # GET /courses
   # List all the courses
   def index
-    courses = Course.all
+    courses = if current_user_has_admin_privileges?
+                Course.all
+              else
+                Course.where(instructor_id: current_user.id)
+              end
     render json: courses, status: :ok
   end
 
