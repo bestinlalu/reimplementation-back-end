@@ -76,7 +76,7 @@ module PenaltyHelper
   private
   
   def calculate_penalty(num_reviews_required, deadline_type_id, mapping_class, reviewer_method)
-    return 0 if num_reviews_required <= 0 || @penalty_per_unit.nil?
+    return 0 if num_reviews_required.to_i <= 0 || @penalty_per_unit.nil?
   
     review_mappings = mapping_class.where(reviewer_id: @participant.send(reviewer_method).id)
     review_due_date = AssignmentDueDate.where(deadline_type_id: deadline_type_id, parent_id: @assignment.id).first
@@ -93,7 +93,7 @@ module PenaltyHelper
   
     num_of_reviews_required.times do |i|
       if review_timestamps[i]
-        penalty += calculate_review_penalty(review_timestamps[i], review_due_date, penalty_unit, penalty_per_unit, max_penalty)
+        penalty += compute_late_penalty(review_timestamps[i], review_due_date, penalty_unit, penalty_per_unit, max_penalty)
       else
         penalty = apply_max_penalty_if_missing(max_penalty)
       end
@@ -110,7 +110,7 @@ module PenaltyHelper
     end
   end
   
-  def calculate_review_penalty(submission_date, due_date, penalty_unit, penalty_per_unit, max_penalty)
+  def compute_late_penalty(submission_date, due_date, penalty_unit, penalty_per_unit, max_penalty)
     return 0 if submission_date <= due_date
   
     time_difference = submission_date - due_date

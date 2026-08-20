@@ -236,14 +236,14 @@ RSpec.describe 'Teammate Review Report', type: :request do
 
   describe 'nested responses in review row' do
     let(:questionnaire) do
-      Questionnaire.create!(name: 'TRQ', instructor_id: instructor.id, max_question_score: 5)
+      Questionnaire.create!(name: 'TRQ', instructor_id: instructor.id, min_question_score: 0, max_question_score: 5)
     end
 
     before do
       map = create_teammate_map(ap1, ap2)
       resp = Response.create!(map_id: map.id, is_submitted: true, additional_comment: 'Great work')
-      item = questionnaire.items.create!(txt: 'Collaboration', seq: 1, question_type: 'Scale', weight: 1)
-      Answer.create!(response: resp, question: item, answer: 4, comments: 'Good')
+      item = questionnaire.items.create!(txt: 'Collaboration', seq: 1, question_type: 'Scale', weight: 1, break_before: true)
+      Answer.create!(response: resp, item: item, answer: 4, comments: 'Good')
     end
 
     it 'includes responses with is_submitted' do

@@ -226,7 +226,7 @@ RSpec.describe 'Course Reports API', type: :request do
     # ------------------------------------------------------------------
 
     context 'peer_score with unweighted reviewers (no ReviewGrade)' do
-      let(:questionnaire) { Questionnaire.create!(name: 'Q1', instructor_id: instructor.id, max_question_score: 5) }
+      let(:questionnaire) { Questionnaire.create!(name: 'Q1', instructor_id: instructor.id, min_question_score: 0, max_question_score: 5) }
 
       before do
         create_participant(student1, assignment)
@@ -240,7 +240,7 @@ RSpec.describe 'Course Reports API', type: :request do
         map = ReviewResponseMap.create!(reviewed_object_id: assignment.id,
                                         reviewer_id: reviewer_ap.id, reviewee_id: team.id)
         resp = Response.create!(map_id: map.id, is_submitted: true, round: 1)
-        Answer.create!(response: resp, question: questionnaire.items.build(txt: 'Q', seq: 1, question_type: 'Scale', weight: 1).tap(&:save), answer: 4)
+        Answer.create!(response: resp, item: questionnaire.items.create!(txt: 'Q', seq: 1, question_type: 'Scale', weight: 1, break_before: true), answer: 4)
       end
 
       it 'returns a non-nil peer_score for the student' do
@@ -253,7 +253,7 @@ RSpec.describe 'Course Reports API', type: :request do
     end
 
     context 'peer_score with a weighted reviewer (ReviewGrade present)' do
-      let(:questionnaire) { Questionnaire.create!(name: 'Q2', instructor_id: instructor.id, max_question_score: 5) }
+      let(:questionnaire) { Questionnaire.create!(name: 'Q2', instructor_id: instructor.id, min_question_score: 0, max_question_score: 5) }
 
       before do
         create_participant(student1, assignment)
@@ -268,7 +268,7 @@ RSpec.describe 'Course Reports API', type: :request do
         map = ReviewResponseMap.create!(reviewed_object_id: assignment.id,
                                         reviewer_id: reviewer_ap.id, reviewee_id: team.id)
         resp = Response.create!(map_id: map.id, is_submitted: true, round: 1)
-        Answer.create!(response: resp, question: questionnaire.items.build(txt: 'Q', seq: 1, question_type: 'Scale', weight: 1).tap(&:save), answer: 5)
+        Answer.create!(response: resp, item: questionnaire.items.create!(txt: 'Q', seq: 1, question_type: 'Scale', weight: 1, break_before: true), answer: 5)
       end
 
       it 'returns a peer_score weighted by the reviewer grade' do

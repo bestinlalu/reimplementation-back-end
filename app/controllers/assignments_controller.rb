@@ -19,9 +19,11 @@ class AssignmentsController < ApplicationController
   # GET /assignments/:id
   def show
     assignment = Assignment.find(params[:id])
-    render json: assignment.as_json(include: {
-      assignment_questionnaires: { include: :questionnaire }
-    })
+    data = assignment.attributes
+    data['assignment_questionnaires'] = assignment.assignment_questionnaires
+      .includes(:questionnaire)
+      .map { |aq| aq.attributes.merge('questionnaire' => aq.questionnaire&.attributes) }
+    render body: data.to_json, content_type: 'application/json'
   end
 
   # POST /assignments
@@ -38,7 +40,7 @@ class AssignmentsController < ApplicationController
   def update
     assignment = Assignment.find(params[:id])
     if assignment.update(assignment_params)
-      render json: assignment, status: :ok
+      render body: assignment.attributes.to_json, content_type: 'application/json', status: :ok
     else
       render json: assignment.errors, status: :unprocessable_entity
     end
