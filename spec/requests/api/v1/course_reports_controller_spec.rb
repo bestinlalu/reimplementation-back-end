@@ -237,10 +237,13 @@ RSpec.describe 'Course Reports API', type: :request do
                                      email: 'r1@example.com')
         reviewer_ap = AssignmentParticipant.create!(user: reviewer_user, parent_id: assignment.id, handle: 'r1')
 
+        item = questionnaire.items.create!(txt: 'Q', seq: 1, question_type: 'Scale', weight: 1, break_before: true)
+        AssignmentQuestionnaire.create!(assignment: assignment, questionnaire: questionnaire,
+                                         used_in_round: 1, questionnaire_weight: 100)
         map = ReviewResponseMap.create!(reviewed_object_id: assignment.id,
                                         reviewer_id: reviewer_ap.id, reviewee_id: team.id)
         resp = Response.create!(map_id: map.id, is_submitted: true, round: 1)
-        Answer.create!(response: resp, item: questionnaire.items.create!(txt: 'Q', seq: 1, question_type: 'Scale', weight: 1, break_before: true), answer: 4)
+        Answer.create!(response: resp, item: item, answer: 4)
       end
 
       it 'returns a non-nil peer_score for the student' do
@@ -265,10 +268,13 @@ RSpec.describe 'Course Reports API', type: :request do
         reviewer_ap = AssignmentParticipant.create!(user: reviewer_user, parent_id: assignment.id, handle: 'r2')
         ReviewGrade.create!(participant: reviewer_ap, grade_for_reviewer: 2.0, grader_id: instructor.id)
 
+        item = questionnaire.items.create!(txt: 'Q', seq: 1, question_type: 'Scale', weight: 1, break_before: true)
+        AssignmentQuestionnaire.create!(assignment: assignment, questionnaire: questionnaire,
+                                         used_in_round: 1, questionnaire_weight: 100)
         map = ReviewResponseMap.create!(reviewed_object_id: assignment.id,
                                         reviewer_id: reviewer_ap.id, reviewee_id: team.id)
         resp = Response.create!(map_id: map.id, is_submitted: true, round: 1)
-        Answer.create!(response: resp, item: questionnaire.items.create!(txt: 'Q', seq: 1, question_type: 'Scale', weight: 1, break_before: true), answer: 5)
+        Answer.create!(response: resp, item: item, answer: 5)
       end
 
       it 'returns a peer_score weighted by the reviewer grade' do

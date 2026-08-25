@@ -2,7 +2,9 @@ module PenaltyHelper
   def get_penalty(participant_id)
     set_participant_and_assignment(participant_id)
     set_late_policy if @assignment.late_policy_id
-  
+
+    return { submission: 0, review: 0, meta_review: 0 } unless @penalty_per_unit
+
     penalties = { submission: 0, review: 0, meta_review: 0 }
     penalties[:submission] = calculate_submission_penalty
     penalties[:review] = calculate_review_penalty
@@ -88,9 +90,9 @@ module PenaltyHelper
   def compute_penalty_on_reviews(review_mappings, review_due_date, num_of_reviews_required, penalty_unit, penalty_per_unit, max_penalty)
     review_timestamps = collect_review_timestamps(review_mappings)
     review_timestamps.sort!
-    
+
     penalty = 0
-  
+
     num_of_reviews_required.times do |i|
       if review_timestamps[i]
         penalty += compute_late_penalty(review_timestamps[i], review_due_date, penalty_unit, penalty_per_unit, max_penalty)
@@ -98,26 +100,26 @@ module PenaltyHelper
         penalty = apply_max_penalty_if_missing(max_penalty)
       end
     end
-  
+
     penalty
   end
-  
+
   private
-  
+
   def collect_review_timestamps(review_mappings)
     review_mappings.filter_map do |map|
       Response.find_by(map_id: map.id)&.created_at unless map.response.empty?
     end
   end
-  
+
   def compute_late_penalty(submission_date, due_date, penalty_unit, penalty_per_unit, max_penalty)
     return 0 if submission_date <= due_date
-  
+
     time_difference = submission_date - due_date
     penalty_units = calculate_penalty_units(time_difference, penalty_unit)
     [penalty_units * penalty_per_unit, max_penalty].min
   end
-  
+
   def apply_max_penalty_if_missing(max_penalty)
     max_penalty
   end

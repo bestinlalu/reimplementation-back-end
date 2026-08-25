@@ -474,7 +474,7 @@ RSpec.describe 'Assignments API', type: :request do
     describe 'GET /assignments/:id (show)' do
       it 'includes instructor_grade_min_score and instructor_grade_max_score in the response' do
         assignment.update!(instructor_grade_min_score: 1, instructor_grade_max_score: 10)
-        get "/assignments/#{assignment.id}", headers: { 'Authorization' => Authorization }
+        get "/assignments/#{assignment.id}", headers: { 'Authorization' => Authorization() }
         data = JSON.parse(response.body)
         expect(data['instructor_grade_min_score']).to eq(1)
         expect(data['instructor_grade_max_score']).to eq(10)
@@ -486,7 +486,7 @@ RSpec.describe 'Assignments API', type: :request do
         questionnaire.items.create!(txt: 'Q1', seq: 1, question_type: 'Scale', weight: 1, break_before: true)
         AssignmentQuestionnaire.create!(assignment: assignment, questionnaire: questionnaire,
                                         used_in_round: 1, questionnaire_weight: 100)
-        get "/assignments/#{assignment.id}", headers: { 'Authorization' => Authorization }
+        get "/assignments/#{assignment.id}", headers: { 'Authorization' => Authorization() }
         data = JSON.parse(response.body)
         aqs = data['assignment_questionnaires']
         expect(aqs).not_to be_empty
@@ -499,7 +499,7 @@ RSpec.describe 'Assignments API', type: :request do
       it 'saves instructor_grade_min_score and instructor_grade_max_score' do
         patch "/assignments/#{assignment.id}",
               params: { assignment: { instructor_grade_min_score: 0, instructor_grade_max_score: 5 } },
-              headers: { 'Authorization' => Authorization }
+              headers: { 'Authorization' => Authorization() }
         expect(response).to have_http_status(:ok)
         assignment.reload
         expect(assignment.instructor_grade_min_score).to eq(0)
@@ -511,7 +511,7 @@ RSpec.describe 'Assignments API', type: :request do
           patch "/assignments/#{assignment.id}",
                 params: { assignment: { name: 'Updated', instructor_grade_min_score: 1,
                                         instructor_grade_max_score: 10 } },
-                headers: { 'Authorization' => Authorization }
+                headers: { 'Authorization' => Authorization() }
         end.not_to raise_error
         expect(response).to have_http_status(:ok)
       end
