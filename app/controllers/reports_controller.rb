@@ -2,7 +2,7 @@
 
 # Dispatches report requests to the appropriate report class.
 # Authorized for admins and teaching staff of the assignment.
-# POST /reports/fetch_report
+# POST /reports/generate_report
 class ReportsController < ApplicationController
   REPORT_CLASSES = {
     'basic' => Reports::BasicReport,
@@ -18,9 +18,9 @@ class ReportsController < ApplicationController
       current_user_teaching_staff_of_assignment?(@assignment.id)
   end
 
-  # POST /reports/fetch_report
-  # Returns the requested report as JSON.
-  def fetch_report
+  # POST /reports/generate_report
+  # Builds and returns the requested report as JSON.
+  def generate_report
     type = params[:type] || 'basic'
 
     report_class = REPORT_CLASSES[type]

@@ -25,7 +25,7 @@ Rails.application.routes.draw do
       end
       resources :assignments do
         member do
-          get :review_grade_conflicts
+          get :review_grades_out_of_bounds
         end
         collection do
           post '/:assignment_id/add_participant/:user_id',action: :add_participant
@@ -52,6 +52,7 @@ Rails.application.routes.draw do
       resources :student_tasks do
         collection do
           get :list, action: :list
+          get :team, action: :team
           get 'show/:id', action: :show
         end
       end
@@ -207,7 +208,7 @@ Rails.application.routes.draw do
       end
       resources :reports, only: [] do
         collection do
-          post :fetch_report
+          post :generate_report
         end
       end
 

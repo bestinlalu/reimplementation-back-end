@@ -4,14 +4,24 @@ class CoursesController < ApplicationController
   rescue_from ActionController::ParameterMissing, with: :parameter_missing
 
   def action_allowed?
-    current_user_has_instructor_privileges?
+    # index and create don't target a specific course; ownership is enforced by
+    # index scoping and by create setting instructor_id to the current user.
+    return current_user_has_instructor_privileges? if action_name.in?(%w[index create])
+
+    course = @course || Course.find_by(id: params[:id])
+    return true unless course  # let the action itself render 404
+
+    current_user_can_manage?(course)
   end
 
   # GET /courses
   # List all the courses
   def index
     courses = if current_user_has_admin_privileges?
-                Course.all
+                # Admins may only see courses belonging to instructors who are
+                # themselves or direct descendants in the user hierarchy.
+                descendant_ids = User.where(parent_id: current_user.id).pluck(:id) + [current_user.id]
+                Course.where(instructor_id: descendant_ids)
               else
                 Course.where(instructor_id: current_user.id)
               end

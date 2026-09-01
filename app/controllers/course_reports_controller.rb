@@ -25,7 +25,10 @@ class CourseReportsController < ApplicationController
       .group_by { |p| [p.parent_id, p.user_id] }
       .transform_values(&:first)
 
-    # { [assignment_id, user_id] => team_id }
+    # Maps [assignment_id, user_id] → team_id so that, for each cell in the
+    # grade table, we can look up the team a student was on for that assignment
+    # without issuing a query per student. A student appears in at most one team
+    # per assignment, so the last record per key is taken (transform_values below).
     team_lookup = TeamsParticipant
       .joins("INNER JOIN teams ON teams_participants.team_id = teams.id")
       .where("teams.parent_id IN (?) AND teams_participants.user_id IN (?)", assignment_ids, user_ids)
@@ -37,7 +40,8 @@ class CourseReportsController < ApplicationController
 
     peer_scores = precompute_peer_scores(assignment_ids, team_ids)
 
-    rows = users.map do |user|
+    # Each student_row represents one student's grades across all assignments.
+    student_rows = users.map do |user|
       cells = assignments.map do |assignment|
         ap = participant_map[[assignment.id, user.id]]
         next nil unless ap
@@ -46,10 +50,7 @@ class CourseReportsController < ApplicationController
         team    = team_id ? teams_by_id[team_id] : nil
 
         raw_grade = team&.grade_for_submission
-        instructor_grade = if raw_grade
-                             penalty = get_penalty(ap.id)[:submission]
-                             (raw_grade - penalty).round(2)
-                           end
+        instructor_grade = penalized_submission_grade(raw_grade, ap.id)
 
         {
           assignment_id:    assignment.id,
@@ -74,11 +75,15 @@ class CourseReportsController < ApplicationController
       course_id:   @course.id,
       course_name: @course.name,
       assignments: assignments.map { |a| { id: a.id, name: a.name, has_topics: a.project_topics.any? } },
-      rows:        rows
+      rows:        student_rows
     }
   end
 
   # GET /courses/:id/course_report/all_reviews
+  # Returns the average teammate review score received by each student per assignment,
+  # plus an aggregate across all assignments and a count of how many unique teammates
+  # reviewed that student. Only non-calibrated assignments with at least one
+  # participant are included.
   def all_reviews
     assignments    = active_assignments
     assignment_ids = assignments.map(&:id)
@@ -89,10 +94,13 @@ class CourseReportsController < ApplicationController
     participant_map  = all_participants.group_by { |p| [p.parent_id, p.user_id] }
                                        .transform_values(&:first)
 
-    teammate_scores = precompute_teammate_scores(all_participants.map(&:id))
-    teammate_counts = precompute_teammate_counts(assignment_ids, user_ids)
+    # Scores received by each participant (reviews OF that student by their teammates)
+    scores_received_from_teammates = precompute_teammate_scores(all_participants.map(&:id))
+    # Number of unique teammates who reviewed each student (reviews DONE BY teammates)
+    reviewer_teammate_counts = precompute_teammate_counts(assignment_ids, user_ids)
 
-    rows = users.map do |user|
+    # Each student_row represents one student's teammate review scores across all assignments.
+    student_rows = users.map do |user|
       cells = assignments.map do |assignment|
         ap = participant_map[[assignment.id, user.id]]
         next nil unless ap
@@ -100,7 +108,7 @@ class CourseReportsController < ApplicationController
         {
           assignment_id:   assignment.id,
           assignment_name: assignment.name,
-          teammate_review: teammate_scores[ap.id]
+          teammate_review: scores_received_from_teammates[ap.id]
         }
       end.compact
 
@@ -109,7 +117,7 @@ class CourseReportsController < ApplicationController
       {
         user_id:        user.id,
         user_name:      user.name,
-        teammate_count: teammate_counts[user.id] || 0,
+        teammate_count: reviewer_teammate_counts[user.id] || 0,
         assignments:    cells,
         aggregate:      pcts.empty? ? nil : "#{(pcts.sum.to_f / pcts.size).round}%"
       }
@@ -119,7 +127,7 @@ class CourseReportsController < ApplicationController
       course_id:   @course.id,
       course_name: @course.name,
       assignments: assignments.map { |a| { id: a.id, name: a.name } },
-      rows:        rows
+      rows:        student_rows
     }
   end
 
@@ -134,11 +142,13 @@ class CourseReportsController < ApplicationController
   def active_assignments
     @course.assignments
            .where(is_calibrated: [false, nil])
-           .includes(:participants)
+           .joins("INNER JOIN participants ON participants.parent_id = assignments.id AND participants.type = 'AssignmentParticipant'")
+           .distinct
            .to_a
-           .reject { |a| a.participants.empty? }
   end
 
+  # Returns all students who participated in at least one of the given assignments,
+  # ordered by name. Used to build the rows of the course report table.
   def unique_users(assignment_ids)
     User
       .joins("INNER JOIN participants ON participants.user_id = users.id")
@@ -148,7 +158,9 @@ class CourseReportsController < ApplicationController
   end
 
   # Bulk-load peer scores for all (assignment, team) pairs at once.
-  # Returns { [assignment_id, team_id] => avg_pct }
+  # Scores are weighted by each reviewer's instructor-assigned grade so that
+  # reviewers with higher grades contribute more to the team's peer score.
+  # Returns { [assignment_id, team_id] => weighted_avg_pct }
   def precompute_peer_scores(assignment_ids, team_ids)
     return {} if team_ids.empty?
 
@@ -160,24 +172,34 @@ class CourseReportsController < ApplicationController
       .where(participant_id: maps.map(&:reviewer_id).uniq)
       .index_by(&:participant_id)
 
-    weighted = Hash.new { |h, k| h[k] = { sum: 0.0, weight: 0.0 } }
+    weighted_peer_score_averages(maps, reviewer_grades)
+  end
+
+  # Accumulates a weighted running sum and total weight for each
+  # [assignment_id, team_id] key, then divides to get the weighted average.
+  # The weight for each reviewer comes from ReviewGrade.reviewer_weight so the
+  # formula can be changed (e.g. non-linear curves) without touching this method.
+  def weighted_peer_score_averages(maps, reviewer_grades)
+    # { [assignment_id, team_id] => { sum: Float, weight: Float } }
+    accumulator = Hash.new { |h, k| h[k] = { sum: 0.0, weight: 0.0 } }
+
     maps.each do |map|
-      grade_weight = reviewer_grades[map.reviewer_id]&.grade_for_reviewer
-      w = grade_weight || 1.0
+      grade_record = reviewer_grades[map.reviewer_id]
+      w = ReviewGrade.reviewer_weight(grade_record&.grade_for_reviewer)
       map.responses.select(&:is_submitted).each do |resp|
-        max = resp.maximum_score
-        next if max.zero?
-        pct = resp.aggregate_questionnaire_score.to_f / max * 100
-        weighted[[map.reviewed_object_id, map.reviewee_id]][:sum]    += pct * w
-        weighted[[map.reviewed_object_id, map.reviewee_id]][:weight] += w
+        pct = response_score_percentage(resp)
+        next if pct.nil?
+
+        accumulator[[map.reviewed_object_id, map.reviewee_id]][:sum]    += pct * w
+        accumulator[[map.reviewed_object_id, map.reviewee_id]][:weight] += w
       end
     end
 
-    weighted.transform_values { |v| (v[:sum] / v[:weight]).round(2) }
+    accumulator.average_weighted_sums { |v| (v[:sum] / v[:weight]).round(2) }
   end
 
   # Bulk-load teammate review scores for all participants at once.
-  # Returns { participant_id => avg_pct }
+  # Returns { participant_id => avg_pct_string }
   def precompute_teammate_scores(participant_ids)
     return {} if participant_ids.empty?
 
@@ -185,17 +207,24 @@ class CourseReportsController < ApplicationController
       .where(reviewee_id: participant_ids)
       .includes(responses: :scores)
 
-    scores_by_id = Hash.new { |h, k| h[k] = [] }
+    scores_by_reviewee = Hash.new { |h, k| h[k] = [] }
     maps.each do |map|
       map.responses.select(&:is_submitted).each do |resp|
-        max = resp.maximum_score
-        next if max.zero?
-        scores_by_id[map.reviewee_id] <<
-          (resp.aggregate_questionnaire_score.to_f / max * 100).round
+        pct = response_score_percentage(resp)
+        scores_by_reviewee[map.reviewee_id] << pct.round if pct
       end
     end
 
-    scores_by_id.transform_values { |s| "#{(s.sum.to_f / s.size).round}%" }
+    scores_by_reviewee.transform_values { |s| "#{(s.sum.to_f / s.size).round}%" }
+  end
+
+  # Returns a response's score as a percentage of its max, or nil if max is zero.
+  # Shared by peer and teammate scoring loops to avoid duplication.
+  def response_score_percentage(resp)
+    max = resp.maximum_score
+    return nil if max.zero?
+
+    resp.aggregate_questionnaire_score.to_f / max * 100
   end
 
   # Bulk-compute unique teammate counts for all users at once.

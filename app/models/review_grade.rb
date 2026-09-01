@@ -7,4 +7,12 @@ class ReviewGrade < ApplicationRecord
   belongs_to :participant
 
   validates :grade_for_reviewer, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 100, allow_nil: true }
+
+  # Returns the weight to apply when computing a weighted peer score.
+  # Defaults to 1.0 when the reviewer has no grade, giving them equal weight.
+  # Override this method to change how reviewer grades translate to weights
+  # (e.g. a non-linear curve) without touching the scoring logic in the controller.
+  def self.reviewer_weight(grade_for_reviewer)
+    grade_for_reviewer || 1.0
+  end
 end

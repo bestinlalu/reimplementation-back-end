@@ -40,8 +40,8 @@ RSpec.describe 'Teammate Review Report', type: :request do
   let(:token) { JsonWebToken.encode(id: instructor.id) }
   let(:headers) { { 'Authorization' => "Bearer #{token}", 'Content-Type' => 'application/json' } }
 
-  def fetch_report(assignment_id = assignment.id)
-    post '/reports/fetch_report',
+  def generate_report(assignment_id = assignment.id)
+    post '/reports/generate_report',
          headers: headers,
          params: { assignment_id: assignment_id, type: 'teammate_review_response_map' }.to_json
   end
@@ -62,10 +62,10 @@ RSpec.describe 'Teammate Review Report', type: :request do
   # Basic routing / error cases
   # -----------------------------------------------------------------------
 
-  describe 'POST /reports/fetch_report with type teammate_review_response_map' do
+  describe 'POST /reports/generate_report with type teammate_review_response_map' do
     context 'when the assignment does not exist' do
       it 'returns 404' do
-        fetch_report(0)
+        generate_report(0)
         expect(response).to have_http_status(:not_found)
         body = JSON.parse(response.body)
         expect(body['error']).to eq('Assignment not found')
@@ -74,7 +74,7 @@ RSpec.describe 'Teammate Review Report', type: :request do
 
     context 'when there are no teammate review maps' do
       it 'returns 200 with an empty reviews array' do
-        fetch_report
+        generate_report
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
         expect(body['reviews']).to eq([])
@@ -83,7 +83,7 @@ RSpec.describe 'Teammate Review Report', type: :request do
 
     context 'response envelope' do
       it 'includes type, assignment_id, and assignment_name' do
-        fetch_report
+        generate_report
         body = JSON.parse(response.body)
         expect(body['type']).to eq('teammate_review_response_map')
         expect(body['assignment_id']).to eq(assignment.id)
@@ -103,33 +103,33 @@ RSpec.describe 'Teammate Review Report', type: :request do
     end
 
     it 'returns a review row for the map' do
-      fetch_report
+      generate_report
       body = JSON.parse(response.body)
       expect(body['reviews'].size).to eq(1)
     end
 
     it 'includes reviewer id and user name' do
-      fetch_report
+      generate_report
       review = JSON.parse(response.body)['reviews'].first
       expect(review['reviewer']['id']).to eq(ap1.id)
       expect(review['reviewer']['user']['name']).to eq(student1.name)
     end
 
     it 'includes reviewee id and user name' do
-      fetch_report
+      generate_report
       review = JSON.parse(response.body)['reviews'].first
       expect(review['reviewee']['id']).to eq(ap2.id)
       expect(review['reviewee']['user']['name']).to eq(student2.name)
     end
 
     it 'marks submitted as true when a submitted response exists' do
-      fetch_report
+      generate_report
       review = JSON.parse(response.body)['reviews'].first
       expect(review['submitted']).to be true
     end
 
     it 'includes last_reviewed_at as an ISO8601 string' do
-      fetch_report
+      generate_report
       review = JSON.parse(response.body)['reviews'].first
       expect(review['last_reviewed_at']).to match(/\d{4}-\d{2}-\d{2}T/)
     end
@@ -147,13 +147,13 @@ RSpec.describe 'Teammate Review Report', type: :request do
       end
 
       it 'marks submitted as false' do
-        fetch_report
+        generate_report
         review = JSON.parse(response.body)['reviews'].first
         expect(review['submitted']).to be false
       end
 
       it 'sets last_reviewed_at to nil' do
-        fetch_report
+        generate_report
         review = JSON.parse(response.body)['reviews'].first
         expect(review['last_reviewed_at']).to be_nil
       end
@@ -163,13 +163,13 @@ RSpec.describe 'Teammate Review Report', type: :request do
       before { create_teammate_map(ap1, ap2) }
 
       it 'marks submitted as false' do
-        fetch_report
+        generate_report
         review = JSON.parse(response.body)['reviews'].first
         expect(review['submitted']).to be false
       end
 
       it 'sets last_reviewed_at to nil' do
-        fetch_report
+        generate_report
         review = JSON.parse(response.body)['reviews'].first
         expect(review['last_reviewed_at']).to be_nil
       end
@@ -189,7 +189,7 @@ RSpec.describe 'Teammate Review Report', type: :request do
       end
 
       it 'returns the team name' do
-        fetch_report
+        generate_report
         review = JSON.parse(response.body)['reviews'].first
         expect(review['team_name']).to eq('Alpha Team')
       end
@@ -199,7 +199,7 @@ RSpec.describe 'Teammate Review Report', type: :request do
       before { create_teammate_map(ap1, ap2) }
 
       it 'returns nil for team_name' do
-        fetch_report
+        generate_report
         review = JSON.parse(response.body)['reviews'].first
         expect(review['team_name']).to be_nil
       end
@@ -218,13 +218,13 @@ RSpec.describe 'Teammate Review Report', type: :request do
     end
 
     it 'returns one row per TeammateReviewResponseMap' do
-      fetch_report
+      generate_report
       body = JSON.parse(response.body)
       expect(body['reviews'].size).to eq(3)
     end
 
     it 'includes all reviewer ids' do
-      fetch_report
+      generate_report
       reviewer_ids = JSON.parse(response.body)['reviews'].map { |r| r['reviewer']['id'] }
       expect(reviewer_ids).to include(ap1.id, ap2.id)
     end
@@ -247,19 +247,19 @@ RSpec.describe 'Teammate Review Report', type: :request do
     end
 
     it 'includes responses with is_submitted' do
-      fetch_report
+      generate_report
       review = JSON.parse(response.body)['reviews'].first
       expect(review['responses'].first['is_submitted']).to be true
     end
 
     it 'includes additional_comment in response' do
-      fetch_report
+      generate_report
       review = JSON.parse(response.body)['reviews'].first
       expect(review['responses'].first['additional_comment']).to eq('Great work')
     end
 
     it 'includes nested scores with answer and comments' do
-      fetch_report
+      generate_report
       review = JSON.parse(response.body)['reviews'].first
       score = review['responses'].first['scores'].first
       expect(score['answer']).to eq(4)
@@ -267,7 +267,7 @@ RSpec.describe 'Teammate Review Report', type: :request do
     end
 
     it 'includes item txt in the score' do
-      fetch_report
+      generate_report
       review = JSON.parse(response.body)['reviews'].first
       item = review['responses'].first['scores'].first['item']
       expect(item['txt']).to eq('Collaboration')
@@ -287,21 +287,21 @@ RSpec.describe 'Teammate Review Report', type: :request do
     end
 
     it 'returns submitted: true for the completed map' do
-      fetch_report
+      generate_report
       reviews = JSON.parse(response.body)['reviews']
       row = reviews.find { |r| r['reviewer']['id'] == ap1.id && r['reviewee']['id'] == ap2.id }
       expect(row['submitted']).to be true
     end
 
     it 'returns submitted: false for the incomplete map' do
-      fetch_report
+      generate_report
       reviews = JSON.parse(response.body)['reviews']
       row = reviews.find { |r| r['reviewer']['id'] == ap1.id && r['reviewee']['id'] == ap3.id }
       expect(row['submitted']).to be false
     end
 
     it 'returns last_reviewed_at nil for the incomplete map' do
-      fetch_report
+      generate_report
       reviews = JSON.parse(response.body)['reviews']
       row = reviews.find { |r| r['reviewer']['id'] == ap1.id && r['reviewee']['id'] == ap3.id }
       expect(row['last_reviewed_at']).to be_nil
@@ -329,7 +329,7 @@ RSpec.describe 'Teammate Review Report', type: :request do
     end
 
     it 'only returns maps belonging to the requested assignment' do
-      fetch_report
+      generate_report
       body = JSON.parse(response.body)
       expect(body['reviews'].size).to eq(1)
       expect(body['reviews'].first['reviewer']['id']).to eq(ap1.id)

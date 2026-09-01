@@ -39,10 +39,10 @@ RSpec.describe 'Review Grade Conflicts API', type: :request do
     ReviewGrade.create!(participant: participant, grade_for_reviewer: grade)
   end
 
-  describe 'GET /assignments/:id/review_grade_conflicts' do
+  describe 'GET /assignments/:id/review_grades_out_of_bounds' do
     context 'when the assignment does not exist' do
       it 'returns 404' do
-        get '/assignments/0/review_grade_conflicts', headers: headers, params: { min: 0, max: 100 }
+        get '/assignments/0/review_grades_out_of_bounds', headers: headers, params: { min: 0, max: 100 }
         expect(response).to have_http_status(:not_found)
         body = JSON.parse(response.body)
         expect(body['error']).to eq('Assignment not found')
@@ -51,7 +51,7 @@ RSpec.describe 'Review Grade Conflicts API', type: :request do
 
     context 'when there are no review grades' do
       it 'returns conflict_count of 0' do
-        get "/assignments/#{assignment.id}/review_grade_conflicts",
+        get "/assignments/#{assignment.id}/review_grades_out_of_bounds",
             headers: headers, params: { min: 0, max: 10 }
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -68,7 +68,7 @@ RSpec.describe 'Review Grade Conflicts API', type: :request do
       end
 
       it 'returns conflict_count of 0' do
-        get "/assignments/#{assignment.id}/review_grade_conflicts",
+        get "/assignments/#{assignment.id}/review_grades_out_of_bounds",
             headers: headers, params: { min: 0, max: 10 }
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -85,7 +85,7 @@ RSpec.describe 'Review Grade Conflicts API', type: :request do
       end
 
       it 'counts grades above the new max as conflicts' do
-        get "/assignments/#{assignment.id}/review_grade_conflicts",
+        get "/assignments/#{assignment.id}/review_grades_out_of_bounds",
             headers: headers, params: { min: 0, max: 4 }
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -100,7 +100,7 @@ RSpec.describe 'Review Grade Conflicts API', type: :request do
       end
 
       it 'counts grades below the new min as conflicts' do
-        get "/assignments/#{assignment.id}/review_grade_conflicts",
+        get "/assignments/#{assignment.id}/review_grades_out_of_bounds",
             headers: headers, params: { min: 2, max: 10 }
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -117,7 +117,7 @@ RSpec.describe 'Review Grade Conflicts API', type: :request do
       end
 
       it 'counts both as conflicts' do
-        get "/assignments/#{assignment.id}/review_grade_conflicts",
+        get "/assignments/#{assignment.id}/review_grades_out_of_bounds",
             headers: headers, params: { min: 2, max: 8 }
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -132,7 +132,7 @@ RSpec.describe 'Review Grade Conflicts API', type: :request do
       end
 
       it 'only checks against max' do
-        get "/assignments/#{assignment.id}/review_grade_conflicts",
+        get "/assignments/#{assignment.id}/review_grades_out_of_bounds",
             headers: headers, params: { max: 90 }
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -147,7 +147,7 @@ RSpec.describe 'Review Grade Conflicts API', type: :request do
       end
 
       it 'only checks against min' do
-        get "/assignments/#{assignment.id}/review_grade_conflicts",
+        get "/assignments/#{assignment.id}/review_grades_out_of_bounds",
             headers: headers, params: { min: 5 }
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -162,7 +162,7 @@ RSpec.describe 'Review Grade Conflicts API', type: :request do
       end
 
       it 'ignores participants without grades' do
-        get "/assignments/#{assignment.id}/review_grade_conflicts",
+        get "/assignments/#{assignment.id}/review_grades_out_of_bounds",
             headers: headers, params: { min: 0, max: 10 }
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)

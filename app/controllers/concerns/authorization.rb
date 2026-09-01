@@ -201,6 +201,31 @@ module Authorization
     end
   end
 
+  # Returns true if the current user may create, read, update, or delete the
+  # given resource (an Assignment or a Course), based on the role hierarchy:
+  #   Super Admin  — always yes (handled by all_actions_allowed? before this runs)
+  #   Admin        — yes if the resource's owning instructor is the admin or a descendant
+  #   Instructor   — yes if they own the resource
+  #   TA           — yes if they are mapped to the resource's course
+  def current_user_can_manage?(resource)
+    return false unless user_logged_in? && resource
+
+    if current_user_has_admin_privileges?
+      instructor = resource_owning_instructor(resource)
+      return instructor.present? &&
+             (instructor.id == current_user.id || current_user_ancestor_of?(instructor))
+    end
+
+    return resource_owning_instructor(resource)&.id == current_user.id if current_user_is_a?('Instructor')
+
+    if current_user_is_a?('Teaching Assistant')
+      course_id = resource_owning_course_id(resource)
+      return course_id.present? && TaMapping.exists?(user_id: current_user.id, course_id: course_id)
+    end
+
+    false
+  end
+
   def current_user_has_all_heatgrid_data_privileges?(assignment)
     return false unless user_logged_in?
 
@@ -266,5 +291,22 @@ module Authorization
 
   def current_user_and_role_exist?
     user_logged_in? && !current_user.role.nil?
+  end
+
+  # Returns the User who owns (instructed) the given resource.
+  # Assignments may inherit their instructor from their parent course.
+  def resource_owning_instructor(resource)
+    case resource
+    when Assignment then find_assignment_instructor(resource)
+    when Course     then User.find_by(id: resource.instructor_id)
+    end
+  end
+
+  # Returns the course_id that governs TA access for the given resource.
+  def resource_owning_course_id(resource)
+    case resource
+    when Assignment then resource.course_id
+    when Course     then resource.id
+    end
   end
 end

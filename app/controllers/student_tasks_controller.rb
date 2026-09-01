@@ -9,6 +9,18 @@ class StudentTasksController < ApplicationController
     render json: @student_tasks, status: :ok
   end
 
+  # Returns team memberships for the current student across their active assignments.
+  def team
+    teams = AssignmentParticipant
+              .where(user_id: current_user.id)
+              .joins("INNER JOIN teams_participants ON teams_participants.user_id = participants.user_id")
+              .joins("INNER JOIN teams ON teams.id = teams_participants.team_id AND teams.parent_id = participants.parent_id")
+              .distinct
+              .pluck("teams.id", "teams.name", "participants.parent_id")
+              .map { |id, name, assignment_id| { team_id: id, team_name: name, assignment_id: } }
+    render json: teams, status: :ok
+  end
+
   # Retrieves a StudentTask by AssignmentParticipant ID.
   # Delegates lookup and preloading to from_participant_id so the find_by +
   # nil-guard + create_from_participant logic is not duplicated here.

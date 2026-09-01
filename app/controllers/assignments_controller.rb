@@ -2,13 +2,24 @@ class AssignmentsController < ApplicationController
   rescue_from ActiveRecord::RecordNotFound, with: :not_found
 
   def action_allowed?
-    current_user_has_instructor_privileges?
+    # TAs can create and list assignments (for courses they're mapped to);
+    # Instructors and above can as well. Course creation stays instructor-only.
+    return current_user_has_ta_privileges? if action_name.in?(%w[index create])
+
+    assignment = Assignment.find_by(id: params[:id] || params[:assignment_id])
+    return true unless assignment  # let the action itself render 404
+
+    current_user_can_manage?(assignment)
   end
 
   # GET /assignments
   def index
     assignments = if current_user_has_admin_privileges?
-                    Assignment.all
+                    # Admins may only see assignments belonging to instructors who are
+                    # themselves or direct descendants (parent_id = admin's id) in the
+                    # user hierarchy — not assignments owned by unrelated admins.
+                    descendant_ids = User.where(parent_id: current_user.id).pluck(:id) + [current_user.id]
+                    Assignment.where(instructor_id: descendant_ids)
                   else
                     Assignment.where(instructor_id: current_user.id)
                               .or(Assignment.where(course_id: Course.where(instructor_id: current_user.id).select(:id)))
@@ -64,9 +75,12 @@ class AssignmentsController < ApplicationController
     end
   end
   
-  # Returns the count of review grades that fall outside the given min/max scale.
-  # GET /assignments/:id/review_grade_conflicts?min=0&max=4
-  def review_grade_conflicts
+  # Returns how many existing ReviewGrade records would fall outside a proposed
+  # min/max scale change. Called before saving new instructor_grade_min/max_score
+  # so the UI can warn the instructor that some already-assigned grades would
+  # become out-of-bounds rather than silently accepting invalid state.
+  # GET /assignments/:id/review_grades_out_of_bounds?min=0&max=4
+  def review_grades_out_of_bounds
     assignment = Assignment.find_by(id: params[:id])
     return render json: { error: "Assignment not found" }, status: :not_found unless assignment
 
@@ -270,7 +284,7 @@ class AssignmentsController < ApplicationController
       :title,
       :description,
       # DB boolean columns
-      :has_badge,
+      :has_badge,          # legacy column from old Expertiza schema; not actively used but kept to avoid unknown-attribute errors on round-trips
       :enable_pair_programming,
       :is_calibrated,
       :staggered_deadline,
