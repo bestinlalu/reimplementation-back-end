@@ -6,7 +6,7 @@
 class ReviewGrade < ApplicationRecord
   belongs_to :participant
 
-  validates :grade_for_reviewer, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 100, allow_nil: true }
+  validates :grade_for_reviewer, numericality: { allow_nil: true }
 
   # Returns the weight to apply when computing a weighted peer score.
   # Defaults to 1.0 when the reviewer has no grade, giving them equal weight.

@@ -52,7 +52,6 @@ Rails.application.routes.draw do
       resources :student_tasks do
         collection do
           get :list, action: :list
-          get :team, action: :team
           get 'show/:id', action: :show
         end
       end
@@ -212,11 +211,7 @@ Rails.application.routes.draw do
         end
       end
 
-      resources :review_reports, only: [] do
-        member do
-          patch :update_grade
-        end
-      end
+      resources :review_reports, only: [:update]
 
       resources :grades do
         collection do

@@ -38,6 +38,10 @@ module MetricHelper
     comments_in_round = []
     counter_in_round = []
 
+    # For each map this reviewer submitted, walk every round and append that
+    # round's comment text to comments_in_round[round], incrementing
+    # counter_in_round[round] once per map that had a response in that round.
+    # ||= ensures we accumulate across maps rather than resetting per map.
     ReviewResponseMap.where(reviewed_object_id: id, reviewer_id: reviewer_id).find_each do |response_map|
       (1..num_review_rounds).each do |round|
         comments_in_round[round] ||= ''

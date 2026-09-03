@@ -15,9 +15,9 @@ class CourseReportsController < ApplicationController
 
   # GET /courses/:id/course_report/grade_summary
   def grade_summary
-    assignments    = active_assignments
+    assignments    = @course.active_assignments
     assignment_ids = assignments.map(&:id)
-    users          = unique_users(assignment_ids)
+    users          = @course.unique_users(assignment_ids)
     user_ids       = users.map(&:id)
 
     participant_map = AssignmentParticipant
@@ -85,9 +85,9 @@ class CourseReportsController < ApplicationController
   # reviewed that student. Only non-calibrated assignments with at least one
   # participant are included.
   def all_reviews
-    assignments    = active_assignments
+    assignments    = @course.active_assignments
     assignment_ids = assignments.map(&:id)
-    users          = unique_users(assignment_ids)
+    users          = @course.unique_users(assignment_ids)
     user_ids       = users.map(&:id)
 
     all_participants = AssignmentParticipant.where(parent_id: assignment_ids).to_a
@@ -139,24 +139,6 @@ class CourseReportsController < ApplicationController
     render json: { error: 'Course not found' }, status: :not_found
   end
 
-  def active_assignments
-    @course.assignments
-           .where(is_calibrated: [false, nil])
-           .joins("INNER JOIN participants ON participants.parent_id = assignments.id AND participants.type = 'AssignmentParticipant'")
-           .distinct
-           .to_a
-  end
-
-  # Returns all students who participated in at least one of the given assignments,
-  # ordered by name. Used to build the rows of the course report table.
-  def unique_users(assignment_ids)
-    User
-      .joins("INNER JOIN participants ON participants.user_id = users.id")
-      .where("participants.type = 'AssignmentParticipant' AND participants.parent_id IN (?)", assignment_ids)
-      .distinct
-      .order(:name)
-  end
-
   # Bulk-load peer scores for all (assignment, team) pairs at once.
   # Scores are weighted by each reviewer's instructor-assigned grade so that
   # reviewers with higher grades contribute more to the team's peer score.
@@ -180,19 +162,13 @@ class CourseReportsController < ApplicationController
   # The weight for each reviewer comes from ReviewGrade.reviewer_weight so the
   # formula can be changed (e.g. non-linear curves) without touching this method.
   def weighted_peer_score_averages(maps, reviewer_grades)
-    # { [assignment_id, team_id] => { sum: Float, weight: Float } }
     accumulator = Hash.new { |h, k| h[k] = { sum: 0.0, weight: 0.0 } }
 
-    maps.each do |map|
+    each_submitted_score(maps) do |map, pct|
       grade_record = reviewer_grades[map.reviewer_id]
       w = ReviewGrade.reviewer_weight(grade_record&.grade_for_reviewer)
-      map.responses.select(&:is_submitted).each do |resp|
-        pct = response_score_percentage(resp)
-        next if pct.nil?
-
-        accumulator[[map.reviewed_object_id, map.reviewee_id]][:sum]    += pct * w
-        accumulator[[map.reviewed_object_id, map.reviewee_id]][:weight] += w
-      end
+      accumulator[[map.reviewed_object_id, map.reviewee_id]][:sum]    += pct * w
+      accumulator[[map.reviewed_object_id, map.reviewee_id]][:weight] += w
     end
 
     accumulator.average_weighted_sums { |v| (v[:sum] / v[:weight]).round(2) }
@@ -208,23 +184,21 @@ class CourseReportsController < ApplicationController
       .includes(responses: :scores)
 
     scores_by_reviewee = Hash.new { |h, k| h[k] = [] }
-    maps.each do |map|
-      map.responses.select(&:is_submitted).each do |resp|
-        pct = response_score_percentage(resp)
-        scores_by_reviewee[map.reviewee_id] << pct.round if pct
-      end
-    end
-
+    each_submitted_score(maps) { |map, pct| scores_by_reviewee[map.reviewee_id] << pct.round }
     scores_by_reviewee.transform_values { |s| "#{(s.sum.to_f / s.size).round}%" }
   end
 
-  # Returns a response's score as a percentage of its max, or nil if max is zero.
-  # Shared by peer and teammate scoring loops to avoid duplication.
-  def response_score_percentage(resp)
-    max = resp.maximum_score
-    return nil if max.zero?
+  # Yields [map, pct] for every submitted response across all maps that has a
+  # non-zero max score. Shared by peer and teammate scoring loops.
+  def each_submitted_score(maps)
+    maps.each do |map|
+      map.responses.select(&:is_submitted).each do |resp|
+        max = resp.maximum_score
+        next if max.zero?
 
-    resp.aggregate_questionnaire_score.to_f / max * 100
+        yield map, resp.aggregate_questionnaire_score.to_f / max * 100
+      end
+    end
   end
 
   # Bulk-compute unique teammate counts for all users at once.

@@ -2,8 +2,6 @@
 
 module Reports
   # Peer-review report: one eager-loaded query shared across all metrics.
-  # Previously split into ScoresReducer, VolumeReducer, and AvgRangesReducer,
-  # each firing separate DB queries. compute_all_metrics now does a single pass.
   #
   # Output:
   #   {
@@ -78,6 +76,12 @@ module Reports
       @reportable = reportable
     end
 
+    # Example (2 reviewers, 1 team, 1 round):
+    #   report = ReviewReport.for_assignment(assignment).run
+    #   report[:reviewer_scores]
+    #   # => { 7 => { 3 => { 1 => 87.5 } } }   # reviewer 7 gave team 3 an 87.5% in round 1
+    #   report[:team_averages]
+    #   # => { 3 => 84.0 }                       # team 3's average across all reviewers
     def run
       # Single eager-load query shared by all downstream computation.
       maps = ReviewResponseMap
@@ -136,6 +140,8 @@ module Reports
           text = (response.scores.map { |s| s.comments.presence } + [response.additional_comment.presence])
                    .compact.join(' ')
           unless text.empty?
+            # Count distinct words; a dedicated NLP gem (e.g. Lingua) could replace
+            # this regex if richer tokenisation is needed later.
             unique_words = text.downcase.scan(/\b[a-z']+\b/).uniq.size
             vol_totals[map.reviewer_id][round][:words] += unique_words
             vol_totals[map.reviewer_id][round][:count] += 1

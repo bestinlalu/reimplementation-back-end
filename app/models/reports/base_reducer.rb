@@ -3,17 +3,12 @@
 module Reports
   # Base class for streaming reducers.
   #
-  # Design rationale (addresses two anti-patterns from the naive approach):
-  #
-  #   Anti-pattern 1 — "fetch_responses": loading all records into an unnamed
-  #   ad-hoc array before processing wastes memory and forces the entire result
-  #   set into Ruby-land. Instead, #run streams the source relation via
-  #   find_each so memory usage scales with the number of *groups*, not rows.
-  #
-  #   Anti-pattern 2 — "default metrics in base": encoding avg_score or any
-  #   domain metric in the base class ties every reducer to one shape of math.
-  #   This class contains *only* the reducer scaffold; each subclass owns its
-  #   accumulate/finalize logic entirely.
+  # Runs a three-step pipeline: source → accumulate(state, row) → finalize(state).
+  # The source relation is consumed via find_each so memory usage scales with
+  # the number of output groups, not with the total number of source rows.
+  # Each subclass owns its accumulate/finalize logic entirely; the base class
+  # provides only the streaming scaffold and shared cross-cutting concerns
+  # (batching, optional shared_state for multi-reducer coordination).
   #
   # Subclasses must implement (private):
   #   source                 → AR relation (consumed via find_each)
@@ -24,6 +19,11 @@ module Reports
   # Subclasses may override (private):
   #   finalize(state) → transforms finished state into the output hash
   #                     (default: returns state unchanged)
+  #
+  # Replaces two anti-patterns from the naive approach:
+  #   - Loading all rows into an unnamed array before processing (wastes memory).
+  #   - Encoding domain metrics (e.g. avg_score) in the base class, which ties
+  #     every reducer to one shape of math.
   class BaseReducer
     # Factory method for assignment-scoped reports.
     def self.for_assignment(assignment)

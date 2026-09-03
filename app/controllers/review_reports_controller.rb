@@ -2,7 +2,7 @@
 
 # Handles instructor actions on review reports, currently grade/comment saving.
 #
-# PATCH /review_reports/:id/update_grade
+# PATCH /review_reports/:id
 #   :id — ReviewResponseMap id. We look up the map to get the reviewer's
 #   participant_id, then upsert a ReviewGrade record for that participant.
 #   One ReviewGrade per reviewer per assignment (matches old schema).
@@ -14,8 +14,8 @@ class ReviewReportsController < ApplicationController
     current_user_teaching_staff_of_assignment?(@map.assignment.id)
   end
 
-  # PATCH /review_reports/:id/update_grade
-  def update_grade
+  # PATCH /review_reports/:id
+  def update
     grade   = params[:assignedGrade].presence&.to_f
     comment = params[:instructorComment].to_s.strip
 

@@ -1,9 +1,11 @@
 class AssignmentsController < ApplicationController
   rescue_from ActiveRecord::RecordNotFound, with: :not_found
 
+  # Analogous to CoursesController#action_allowed? — both delegate ownership
+  # checks to current_user_can_manage?. The only intentional difference is the
+  # collection-action gate: TAs may create and list assignments (for courses
+  # they are mapped to), whereas only Instructors and above may create courses.
   def action_allowed?
-    # TAs can create and list assignments (for courses they're mapped to);
-    # Instructors and above can as well. Course creation stays instructor-only.
     return current_user_has_ta_privileges? if action_name.in?(%w[index create])
 
     assignment = Assignment.find_by(id: params[:id] || params[:assignment_id])
@@ -14,15 +16,17 @@ class AssignmentsController < ApplicationController
 
   # GET /assignments
   def index
-    assignments = if current_user_has_admin_privileges?
-                    # Admins may only see assignments belonging to instructors who are
-                    # themselves or direct descendants (parent_id = admin's id) in the
-                    # user hierarchy — not assignments owned by unrelated admins.
-                    descendant_ids = User.where(parent_id: current_user.id).pluck(:id) + [current_user.id]
-                    Assignment.where(instructor_id: descendant_ids)
-                  else
+    assignments = if current_user_has_super_admin_privileges?
+                    Assignment.all
+                  elsif current_user_has_admin_privileges?
+                    Assignment.where(instructor_id: current_user.self_and_descendant_ids)
+                  elsif current_user_is_a?('Instructor')
                     Assignment.where(instructor_id: current_user.id)
                               .or(Assignment.where(course_id: Course.where(instructor_id: current_user.id).select(:id)))
+                  elsif current_user_is_a?('Teaching Assistant')
+                    Assignment.where(course_id: current_user_ta_course_ids)
+                  else
+                    Assignment.none
                   end
     render json: assignments
   end
@@ -75,10 +79,10 @@ class AssignmentsController < ApplicationController
     end
   end
   
-  # Returns how many existing ReviewGrade records would fall outside a proposed
-  # min/max scale change. Called before saving new instructor_grade_min/max_score
-  # so the UI can warn the instructor that some already-assigned grades would
-  # become out-of-bounds rather than silently accepting invalid state.
+  # When a user wants to change the min/max score scale for a rubric, the code
+  # needs to find how many previously assigned ReviewGrade scores would become
+  # invalid (out of bounds) under the new scale, so the UI can warn the
+  # instructor before saving the change.
   # GET /assignments/:id/review_grades_out_of_bounds?min=0&max=4
   def review_grades_out_of_bounds
     assignment = Assignment.find_by(id: params[:id])

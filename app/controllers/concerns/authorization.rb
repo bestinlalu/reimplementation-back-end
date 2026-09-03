@@ -76,7 +76,7 @@ module Authorization
     user_logged_in? &&
     (
         current_user_instructs_assignment?(assignment) ||
-        current_user_has_ta_mapping_for_assignment?(assignment)
+        current_user_TAs_assignment?(assignment)
         # TODO: include a check to allow admins or superadmins access to assignments their child instructors can access
     )
   end
@@ -139,12 +139,12 @@ module Authorization
             reviewee_team.user?(current_user) ||
             current_user_has_admin_privileges? ||
             (current_user_is_a?('Instructor') && current_user_instructs_assignment?(assignment)) ||
-            (current_user_is_a?('Teaching Assistant') && current_user_has_ta_mapping_for_assignment?(assignment))
+            (current_user_is_a?('Teaching Assistant') && current_user_TAs_assignment?(assignment))
           )
     end
     current_user_has_id?(user_id) ||
         (current_user_is_a?('Instructor') && current_user_instructs_assignment?(assignment)) ||
-        (assignment.course && current_user_is_a?('Teaching Assistant') && current_user_has_ta_mapping_for_assignment?(assignment))
+        (assignment.course && current_user_is_a?('Teaching Assistant') && current_user_TAs_assignment?(assignment))
   end
 
   # Determine if there is a current user
@@ -172,9 +172,16 @@ module Authorization
     )
   end
 
-  # Determine if the current user and the given assignment are associated by a TA mapping
-  def current_user_has_ta_mapping_for_assignment?(assignment)
-    user_logged_in? && !assignment.nil? && TaMapping.exists?(user_id: current_user.id, course_id: assignment.course.id)
+  # Returns true if the current user is a TA for the given course.
+  def current_user_TAs_course?(course)
+    user_logged_in? && course.present? && TaMapping.exists?(user_id: current_user.id, course_id: course.id)
+  end
+
+  # Returns true if the current user TAs the course that owns this assignment.
+  # Implemented in terms of current_user_TAs_course? because a TA is mapped to a
+  # course, not individual assignments within it.
+  def current_user_TAs_assignment?(assignment)
+    assignment.present? && current_user_TAs_course?(assignment.course)
   end
 
   # Recursively find an assignment given the passed in Response id. Because a ResponseMap
@@ -219,8 +226,8 @@ module Authorization
     return resource_owning_instructor(resource)&.id == current_user.id if current_user_is_a?('Instructor')
 
     if current_user_is_a?('Teaching Assistant')
-      course_id = resource_owning_course_id(resource)
-      return course_id.present? && TaMapping.exists?(user_id: current_user.id, course_id: course_id)
+      course = resource.is_a?(Course) ? resource : resource.course
+      return current_user_TAs_course?(course)
     end
 
     false
@@ -242,7 +249,7 @@ module Authorization
     return true if current_user_is_a?('Instructor') && current_user_instructs_assignment?(assignment)
 
     # 4. TA mapped to the course of the assignment
-    return true if current_user_is_a?('Teaching Assistant') && current_user_has_ta_mapping_for_assignment?(assignment)
+    return true if current_user_is_a?('Teaching Assistant') && current_user_TAs_assignment?(assignment)
 
     false
   end
@@ -293,20 +300,18 @@ module Authorization
     user_logged_in? && !current_user.role.nil?
   end
 
+  # Returns a relation of course_ids the current TA is mapped to.
+  # Used as a subquery in index scoping for both CoursesController and AssignmentsController.
+  def current_user_ta_course_ids
+    TaMapping.where(user_id: current_user.id).select(:course_id)
+  end
+
   # Returns the User who owns (instructed) the given resource.
   # Assignments may inherit their instructor from their parent course.
   def resource_owning_instructor(resource)
     case resource
     when Assignment then find_assignment_instructor(resource)
-    when Course     then User.find_by(id: resource.instructor_id)
-    end
-  end
-
-  # Returns the course_id that governs TA access for the given resource.
-  def resource_owning_course_id(resource)
-    case resource
-    when Assignment then resource.course_id
-    when Course     then resource.id
+    when Course     then resource.instructor
     end
   end
 end

@@ -53,10 +53,10 @@ RSpec.describe 'Review Reports API', type: :request do
   let(:token) { JsonWebToken.encode(id: instructor.id) }
   let(:headers) { { 'Authorization' => "Bearer #{token}", 'Content-Type' => 'application/json' } }
 
-  describe 'PATCH /review_reports/:id/update_grade' do
+  describe 'PATCH /review_reports/:id' do
     context 'when the review map does not exist' do
       it 'returns 404' do
-        patch '/review_reports/0/update_grade', headers: headers,
+        patch '/review_reports/0', headers: headers,
               params: { assignedGrade: 80, instructorComment: 'Good' }.to_json
         expect(response).to have_http_status(:not_found)
         body = JSON.parse(response.body)
@@ -66,7 +66,7 @@ RSpec.describe 'Review Reports API', type: :request do
 
     context 'when saving a grade for the first time' do
       it 'creates a ReviewGrade and returns 200' do
-        patch "/review_reports/#{review_map.id}/update_grade", headers: headers,
+        patch "/review_reports/#{review_map.id}", headers: headers,
               params: { assignedGrade: 85.0, instructorComment: 'Well done' }.to_json
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -76,7 +76,7 @@ RSpec.describe 'Review Reports API', type: :request do
       end
 
       it 'persists the grade in the database' do
-        patch "/review_reports/#{review_map.id}/update_grade", headers: headers,
+        patch "/review_reports/#{review_map.id}", headers: headers,
               params: { assignedGrade: 90.0, instructorComment: '' }.to_json
         rg = ReviewGrade.find_by(participant_id: reviewer_participant.id)
         expect(rg).not_to be_nil
@@ -84,14 +84,14 @@ RSpec.describe 'Review Reports API', type: :request do
       end
 
       it 'records grader_id as the current instructor' do
-        patch "/review_reports/#{review_map.id}/update_grade", headers: headers,
+        patch "/review_reports/#{review_map.id}", headers: headers,
               params: { assignedGrade: 70.0, instructorComment: '' }.to_json
         rg = ReviewGrade.find_by(participant_id: reviewer_participant.id)
         expect(rg.grader_id).to eq(instructor.id)
       end
 
       it 'does not set review_graded_at (column removed)' do
-        patch "/review_reports/#{review_map.id}/update_grade", headers: headers,
+        patch "/review_reports/#{review_map.id}", headers: headers,
               params: { assignedGrade: 70.0, instructorComment: '' }.to_json
         rg = ReviewGrade.find_by(participant_id: reviewer_participant.id)
         expect(rg).not_to respond_to(:review_graded_at)
@@ -109,7 +109,7 @@ RSpec.describe 'Review Reports API', type: :request do
       end
 
       it 'updates the grade and returns 200' do
-        patch "/review_reports/#{review_map.id}/update_grade", headers: headers,
+        patch "/review_reports/#{review_map.id}", headers: headers,
               params: { assignedGrade: 75.0, instructorComment: 'Revised' }.to_json
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -118,7 +118,7 @@ RSpec.describe 'Review Reports API', type: :request do
       end
 
       it 'does not create a duplicate ReviewGrade record' do
-        patch "/review_reports/#{review_map.id}/update_grade", headers: headers,
+        patch "/review_reports/#{review_map.id}", headers: headers,
               params: { assignedGrade: 60.0, instructorComment: '' }.to_json
         count = ReviewGrade.where(participant_id: reviewer_participant.id).count
         expect(count).to eq(1)
@@ -127,7 +127,7 @@ RSpec.describe 'Review Reports API', type: :request do
 
     context 'when grade is blank (clearing a grade)' do
       it 'saves nil as grade_for_reviewer' do
-        patch "/review_reports/#{review_map.id}/update_grade", headers: headers,
+        patch "/review_reports/#{review_map.id}", headers: headers,
               params: { assignedGrade: '', instructorComment: '' }.to_json
         expect(response).to have_http_status(:ok)
         body = JSON.parse(response.body)
@@ -137,14 +137,14 @@ RSpec.describe 'Review Reports API', type: :request do
 
     context 'response payload' do
       it 'does not include review_graded_at' do
-        patch "/review_reports/#{review_map.id}/update_grade", headers: headers,
+        patch "/review_reports/#{review_map.id}", headers: headers,
               params: { assignedGrade: 80.0, instructorComment: 'ok' }.to_json
         body = JSON.parse(response.body)
         expect(body.keys).not_to include('review_graded_at')
       end
 
       it 'includes participant_id, grade_for_reviewer, comment_for_reviewer' do
-        patch "/review_reports/#{review_map.id}/update_grade", headers: headers,
+        patch "/review_reports/#{review_map.id}", headers: headers,
               params: { assignedGrade: 80.0, instructorComment: 'ok' }.to_json
         body = JSON.parse(response.body)
         expect(body.keys).to include('participant_id', 'grade_for_reviewer', 'comment_for_reviewer')
