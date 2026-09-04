@@ -141,7 +141,7 @@ module Reports
                    .compact.join(' ')
           unless text.empty?
             # Count distinct words; a dedicated NLP gem (e.g. Lingua) could replace
-            # this regex if richer tokenisation is needed later.
+            # this regex if richer tokenization is needed later.
             unique_words = text.downcase.scan(/\b[a-z']+\b/).uniq.size
             vol_totals[map.reviewer_id][round][:words] += unique_words
             vol_totals[map.reviewer_id][round][:count] += 1

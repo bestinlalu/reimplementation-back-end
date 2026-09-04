@@ -157,21 +157,27 @@ class CourseReportsController < ApplicationController
     weighted_peer_score_averages(maps, reviewer_grades)
   end
 
+  # Named entry returned by submitted_scores.
+  ScoreEntry = Struct.new(:map, :score_pct)
+  # Named accumulator used by weighted_peer_score_averages.
+  WeightedSum = Struct.new(:sum, :weight)
+
   # Accumulates a weighted running sum and total weight for each
   # [assignment_id, team_id] key, then divides to get the weighted average.
   # The weight for each reviewer comes from ReviewGrade.reviewer_weight so the
   # formula can be changed (e.g. non-linear curves) without touching this method.
   def weighted_peer_score_averages(maps, reviewer_grades)
-    accumulator = Hash.new { |h, k| h[k] = { sum: 0.0, weight: 0.0 } }
+    accumulator = Hash.new { |h, k| h[k] = WeightedSum.new(0.0, 0.0) }
 
-    each_submitted_score(maps) do |map, pct|
-      grade_record = reviewer_grades[map.reviewer_id]
+    submitted_scores(maps).each do |entry|
+      grade_record = reviewer_grades[entry.map.reviewer_id]
       w = ReviewGrade.reviewer_weight(grade_record&.grade_for_reviewer)
-      accumulator[[map.reviewed_object_id, map.reviewee_id]][:sum]    += pct * w
-      accumulator[[map.reviewed_object_id, map.reviewee_id]][:weight] += w
+      acc = accumulator[[entry.map.reviewed_object_id, entry.map.reviewee_id]]
+      acc.sum    += entry.score_pct * w
+      acc.weight += w
     end
 
-    accumulator.average_weighted_sums { |v| (v[:sum] / v[:weight]).round(2) }
+    accumulator.average_weighted_sums { |v| (v.sum / v.weight).round(2) }
   end
 
   # Bulk-load teammate review scores for all participants at once.
@@ -184,19 +190,18 @@ class CourseReportsController < ApplicationController
       .includes(responses: :scores)
 
     scores_by_reviewee = Hash.new { |h, k| h[k] = [] }
-    each_submitted_score(maps) { |map, pct| scores_by_reviewee[map.reviewee_id] << pct.round }
+    submitted_scores(maps).each { |entry| scores_by_reviewee[entry.map.reviewee_id] << entry.score_pct.round }
     scores_by_reviewee.transform_values { |s| "#{(s.sum.to_f / s.size).round}%" }
   end
 
-  # Yields [map, pct] for every submitted response across all maps that has a
-  # non-zero max score. Shared by peer and teammate scoring loops.
-  def each_submitted_score(maps)
-    maps.each do |map|
-      map.responses.select(&:is_submitted).each do |resp|
+  # Returns an array of ScoreEntry for every submitted response across all maps
+  # that has a non-zero max score. Shared by peer and teammate scoring loops.
+  def submitted_scores(maps)
+    maps.flat_map do |map|
+      map.responses.select(&:is_submitted).filter_map do |resp|
         max = resp.maximum_score
         next if max.zero?
-
-        yield map, resp.aggregate_questionnaire_score.to_f / max * 100
+        ScoreEntry.new(map, resp.aggregate_questionnaire_score.to_f / max * 100)
       end
     end
   end

@@ -71,7 +71,7 @@ module PenaltyHelper
   # Accumulates the late penalty across all required reviews for a reviewer.
   # If a review is missing entirely, the full max_penalty is charged for that slot.
   def accumulated_review_penalty(mappings, due_date, num_required, policy)
-    timestamps = review_submission_timestamps(mappings).sort
+    timestamps = review_submission_timestamps(mappings)
 
     total = 0
     num_required.times do |i|
@@ -84,12 +84,16 @@ module PenaltyHelper
     total
   end
 
+  # Returns the created_at timestamp of the first response for each map that has one.
+  # Maps with no response are omitted; the result may be shorter than mappings.
   def review_submission_timestamps(mappings)
     mappings.filter_map do |map|
       Response.find_by(map_id: map.id)&.created_at unless map.response.empty?
     end
   end
 
+  # Returns the penalty for a single late submission; 0 if on time.
+  # Capped at policy.max_penalty.
   def late_penalty(submitted_at, due_at, policy)
     return 0 if submitted_at <= due_at
 
@@ -97,6 +101,8 @@ module PenaltyHelper
     [units * policy.penalty_per_unit, policy.max_penalty].min
   end
 
+  # Converts a time difference (in seconds) to the number of penalty units
+  # based on the policy's unit (Minute, Hour, or Day).
   def penalty_units(time_difference, unit)
     case unit
     when 'Minute' then time_difference / 60

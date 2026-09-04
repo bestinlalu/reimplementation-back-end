@@ -49,11 +49,10 @@ class Course < ApplicationRecord
     { success: true, ta_name: ta.name }
   end
 
-  # Non-calibrated assignments that have at least one participant.
-  # Used by course report endpoints to exclude empty or calibration assignments.
+  # Assignments that have at least one participant.
+  # Used by course report endpoints to exclude empty assignments.
   def active_assignments
     assignments
-      .where(is_calibrated: [false, nil])
       .joins("INNER JOIN participants ON participants.parent_id = assignments.id AND participants.type = 'AssignmentParticipant'")
       .distinct
       .to_a

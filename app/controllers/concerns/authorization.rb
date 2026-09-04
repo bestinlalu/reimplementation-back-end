@@ -180,6 +180,8 @@ module Authorization
   # Returns true if the current user TAs the course that owns this assignment.
   # Implemented in terms of current_user_TAs_course? because a TA is mapped to a
   # course, not individual assignments within it.
+  # If the assignment has no course (course_id is nil), assignment.course returns
+  # nil and current_user_TAs_course? returns false safely via course.present?.
   def current_user_TAs_assignment?(assignment)
     assignment.present? && current_user_TAs_course?(assignment.course)
   end
@@ -197,9 +199,10 @@ module Authorization
     end
   end
 
-  # Finds the assignment_instructor for a given assignment. If the assignment is associated with
-  # a course, the instructor for the course is returned. If not, the instructor associated
-  # with the assignment is return.
+  # Returns the instructor who owns the given assignment.
+  # If the assignment belongs to a course, the course's instructor is returned.
+  # If the assignment has no course (standalone assignment), falls back to
+  # assignment.instructor so the method works in both cases.
   def find_assignment_instructor(assignment)
     if assignment.course
       Course.find_by(id: assignment.course.id).instructor

@@ -80,11 +80,11 @@ RSpec.describe 'Course Reports API', type: :request do
         create_participant(student1, calibrated_assignment)
       end
 
-      it 'excludes calibrated assignments from the report' do
+      it 'includes calibrated assignments in the report' do
         get "/courses/#{course.id}/course_report/grade_summary", headers: headers
         body = JSON.parse(response.body)
         assignment_ids = body['assignments'].map { |a| a['id'] }
-        expect(assignment_ids).not_to include(calibrated_assignment.id)
+        expect(assignment_ids).to include(calibrated_assignment.id)
       end
     end
 
@@ -307,11 +307,11 @@ RSpec.describe 'Course Reports API', type: :request do
         create_participant(student1, calibrated_assignment)
       end
 
-      it 'excludes calibrated assignments' do
+      it 'includes calibrated assignments' do
         get "/courses/#{course.id}/course_report/all_reviews", headers: headers
         body = JSON.parse(response.body)
         assignment_ids = body['assignments'].map { |a| a['id'] }
-        expect(assignment_ids).not_to include(calibrated_assignment.id)
+        expect(assignment_ids).to include(calibrated_assignment.id)
       end
     end
 
