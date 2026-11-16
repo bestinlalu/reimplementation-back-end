@@ -27,5 +27,7 @@ RSpec.describe CoursesController, type: :routing do
     it "routes to #destroy" do
       expect(delete: "/courses/1").to route_to("courses#destroy", id: "1")
     end
+
+
   end
 end

@@ -377,4 +377,5 @@ RSpec.describe 'courses', type: :request do
       end
     end
   end
+
 end
